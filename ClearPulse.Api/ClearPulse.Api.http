@@ -1,0 +1,6 @@
+@ClearPulse.Api_HostAddress = http://localhost:5076
+
+GET {{ClearPulse.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
