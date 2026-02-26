@@ -8,11 +8,11 @@ namespace ClearPulse.Core.Entities
     public class SystemUser
     {
         [Key]
-        public long Id { get; set; }
+        public int Id { get; set; }
 
         [Required, MaxLength(50)]
         public string Username { get; set; } = string.Empty;
-
+        public string? Name { get; set; }
         [Required]
         public string PasswordHash { get; set; } = string.Empty;
 
@@ -28,6 +28,7 @@ namespace ClearPulse.Core.Entities
         public string? CircleCode { get; set; }
 
         public bool IsActive { get; set; } = true;
+        public string? AuthorizedIP { get; set; }
         public DateTime? LastLogin { get; set; }
         public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
 

@@ -29,6 +29,7 @@
         // i) AD Integration Status
         public ADIntegrationMetrics ADMetrics { get; set; }
 
+        public List<DeviceDetailsDto> deviceDetails { get; set; }
         // f) Circle-wise breakdown
         public List<CircleMetricsDto> CircleBreakdown { get; set; }
     }
@@ -197,7 +198,8 @@
         public int NotInstalled { get; set; }
         public int NotUpdated { get; set; }
         public int NotScanned { get; set; }
-        public List<DeviceDetailsDto> Devices { get; set; }
+        public PagedResult<DeviceDetailsDto> Devices { get; set; }
+        public List<string> AvailableReasons { get; set; }
     }
 
     public class ADQuarantineMetrics
@@ -205,13 +207,25 @@
         public int AccountDisabled { get; set; }
         public int UserNotFound { get; set; }
         public int CertificateInvalid { get; set; }
-        public List<DeviceDetailsDto> Devices { get; set; }
+        public PagedResult<DeviceDetailsDto> Devices { get; set; }
+        public List<string> AvailableReasons { get; set; }
     }
 
     public class OtherQuarantineMetrics
     {
         public int AuthenticationFailed { get; set; }
         public int Other { get; set; }
-        public List<DeviceDetailsDto> Devices { get; set; }
+        public PagedResult<DeviceDetailsDto> Devices { get; set; }
+        public List<string> AvailableReasons { get; set; }
+
+    }
+
+    public class PagedResult<T>
+    {
+        public List<T> Items { get; set; }
+        public int TotalCount { get; set; }
+        public int Page { get; set; }
+        public int PageSize { get; set; }
+        public int TotalPages { get; set; }
     }
 }

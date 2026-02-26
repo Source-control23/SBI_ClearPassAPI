@@ -19,19 +19,31 @@ namespace ClearPulse.Api.Controllers
         /// Get all branches
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] string circleCode = null)
+        public async Task<IActionResult> GetAll([FromQuery] string circleCode = null,[FromQuery] int pageNumber = 1,[FromQuery] int pageSize = 10)
         {
             var query = _db.BranchMaster.AsQueryable();
 
             if (!string.IsNullOrEmpty(circleCode))
                 query = query.Where(b => b.CircleCode == circleCode);
 
+            var totalRecords = await query.CountAsync();
+            var totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize);
+
             var branches = await query
                 .OrderBy(b => b.CircleCode)
                 .ThenBy(b => b.BranchCode)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
 
-            return Ok(branches);
+            return Ok(new
+            {
+                data = branches,
+                totalRecords,
+                totalPages,
+                pageNumber,
+                pageSize
+            });
         }
 
         /// <summary>

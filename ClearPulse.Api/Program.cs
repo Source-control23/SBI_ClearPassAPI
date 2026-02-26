@@ -179,9 +179,9 @@ if (app.Environment.IsDevelopment())
 // Enable Swagger
 app.UseSwagger();
 app.UseSwaggerUI();
+app.UseCors("AllowAll");
 
 app.UseHttpsRedirection();
-app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();

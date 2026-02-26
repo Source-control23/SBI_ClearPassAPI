@@ -19,13 +19,27 @@ namespace ClearPulse.Api.Controllers
         /// Get all circles
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<IActionResult> GetAll([FromQuery] int pageNumber = 1,[FromQuery] int pageSize = 10)
         {
-            var circles = await _db.CircleMaster
+            var query = _db.CircleMaster
                 .OrderBy(c => c.CircleCode)
+                .AsQueryable();
+
+            var totalRecords = await query.CountAsync();
+
+            var circles = await query
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
 
-            return Ok(circles);
+            return Ok(new
+            {
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalRecords = totalRecords,
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data = circles
+            });
         }
 
         /// <summary>

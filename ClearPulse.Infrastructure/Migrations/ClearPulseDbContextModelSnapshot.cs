@@ -638,11 +638,14 @@ namespace ClearPulse.Infrastructure.Migrations
 
             modelBuilder.Entity("ClearPulse.Core.Entities.SystemUser", b =>
                 {
-                    b.Property<long>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
+                        .HasColumnType("int");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AuthorizedIP")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("CircleCode")
                         .HasMaxLength(20)
@@ -661,6 +664,9 @@ namespace ClearPulse.Infrastructure.Migrations
 
                     b.Property<DateTime?>("LastLogin")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()

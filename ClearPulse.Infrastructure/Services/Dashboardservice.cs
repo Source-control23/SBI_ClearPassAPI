@@ -1,4 +1,6 @@
-﻿using ClearPulse.Core.DTOs;
+﻿using Azure;
+using ClearPulse.Core.DTOs;
+using ClearPulse.Core.Entities;
 using ClearPulse.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,7 +12,18 @@ namespace ClearPulse.Infrastructure.Services
         Task<CircleMetricsDto> GetCircleMetricsAsync(string circleCode, string tenantId);
         Task<List<DeviceDetailsDto>> GetDeviceDetailsAsync(string tenantId, string circleCode,
             string authType = null, string healthStatus = null, bool machinesOnly = false, int take = 500);
-        Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(string tenantId, string circleCode = null);
+        //Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(string tenantId, string circleCode = null);
+        Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(
+               string tenantId,
+               string circleCode = null,
+               int avPage = 1,
+               int adPage = 1,
+               int otherPage = 1,
+               int pageSize = 10,
+               string search = null,
+               string avReason = null,
+               string adReason = null,
+               string otherReason = null);
         Task<ComparativeMetricsDto> GetComparativeMetricsAsync(int days, string tenantId, string circleCode = null);
     }
 
@@ -67,6 +80,8 @@ namespace ClearPulse.Infrastructure.Services
             // i) AD integration metrics
             var adMetrics = await GetADIntegrationMetricsAsync(tenantId, circleCode);
 
+            var devicesMetrics = await GetDeviceDetailsAsync(tenantId, circleCode);
+
             // f) Circle-wise breakdown
             var circleBreakdown = await GetCircleBreakdownAsync(tenantId);
 
@@ -80,6 +95,7 @@ namespace ClearPulse.Infrastructure.Services
                 TotalUnhealthyMachines = totalUnhealthy,
                 NASMetrics = nasMetrics,
                 ClusterMetrics = clusterMetrics,
+                deviceDetails = devicesMetrics,
                 ADMetrics = adMetrics,
                 CircleBreakdown = circleBreakdown
             };
@@ -210,62 +226,242 @@ namespace ClearPulse.Infrastructure.Services
         /// <summary>
         /// Gets quarantine details categorized by issue type
         /// </summary>
-        public async Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(string tenantId, string circleCode = null)
+        //public async Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(string tenantId, string circleCode = null)
+        //{
+        //    var query = _db.DeviceAuthEvents.AsQueryable();
+
+        //    if (!string.IsNullOrEmpty(tenantId))
+        //        query = query.Where(d => d.TenantId == tenantId);
+
+        //    if (!string.IsNullOrEmpty(circleCode))
+        //        query = query.Where(d => d.CircleCode == circleCode);
+
+        //    // Get latest event per device
+        //    var quarantinedDevices = await query
+        //        .Where(d => d.Status == "Quarantine" || d.IsolationState == "Isolated")
+        //        .GroupBy(d => d.MacAddress)
+        //        .Select(g => g.OrderByDescending(d => d.EventTime).FirstOrDefault())
+        //        .ToListAsync();
+
+        //    // Categorize by issue type
+        //    var avIssues = quarantinedDevices
+        //        .Where(d => d.QuarantineCategory == "AV_Issue")
+        //        .Select(MapToDeviceDetails)
+        //        .ToList();
+
+        //    var adIssues = quarantinedDevices
+        //        .Where(d => d.QuarantineCategory == "AD_Issue")
+        //        .Select(MapToDeviceDetails)
+        //        .ToList();
+
+        //    var otherIssues = quarantinedDevices
+        //        .Where(d => d.QuarantineCategory == "Other" || string.IsNullOrEmpty(d.QuarantineCategory))
+        //        .Select(MapToDeviceDetails)
+        //        .ToList();
+
+        //    return new QuarantineDetailsDto
+        //    {
+        //        AVIssues = new AVQuarantineMetrics
+        //        {
+        //            NotInstalled = avIssues.Count(d => !d.AVInstalled),
+        //            NotUpdated = avIssues.Count(d => d.AVInstalled && !d.AVUpdated),
+        //            NotScanned = avIssues.Count(d => d.AVInstalled && !d.AVScanned),
+        //            Devices = avIssues
+        //        },
+        //        ADIssues = new ADQuarantineMetrics
+        //        {
+        //            AccountDisabled = adIssues.Count(d => d.ADAccountDisabled),
+        //            UserNotFound = adIssues.Count(d => !d.ADUserFound),
+        //            CertificateInvalid = adIssues.Count(d => d.QuarantineReason?.Contains("certificate") ?? false),
+        //            Devices = adIssues
+        //        },
+        //        OtherIssues = new OtherQuarantineMetrics
+        //        {
+        //            AuthenticationFailed = otherIssues.Count(d => d.QuarantineReason?.Contains("Authentication Failed") ?? false),
+        //            Other = otherIssues.Count(d => !(d.QuarantineReason?.Contains("Authentication Failed") ?? false)),
+        //            Devices = otherIssues
+        //        }
+        //    };
+        //}
+
+        public async Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(
+    string tenantId,
+    string circleCode = null,
+    int avPage = 1,
+    int adPage = 1,
+    int otherPage = 1,
+    int pageSize = 10,
+    string search = null,
+    string avReason = null,
+    string adReason = null,
+    string otherReason = null)
         {
-            var query = _db.DeviceAuthEvents.AsQueryable();
+            // ── 1. Base filter ────────────────────────────────────────────────────
+            var baseQuery = _db.DeviceAuthEvents
+                .AsNoTracking()
+                .Where(d => d.Status == "Quarantine" || d.IsolationState == "Isolated");
 
             if (!string.IsNullOrEmpty(tenantId))
-                query = query.Where(d => d.TenantId == tenantId);
-
+                baseQuery = baseQuery.Where(d => d.TenantId == tenantId);
             if (!string.IsNullOrEmpty(circleCode))
-                query = query.Where(d => d.CircleCode == circleCode);
+                baseQuery = baseQuery.Where(d => d.CircleCode == circleCode);
 
-            // Get latest event per device
-            var quarantinedDevices = await query
-                .Where(d => d.Status == "Quarantine" || d.IsolationState == "Isolated")
+            // ── 2. Latest per device ──────────────────────────────────────────────
+            var latestTimes = baseQuery
                 .GroupBy(d => d.MacAddress)
-                .Select(g => g.OrderByDescending(d => d.EventTime).FirstOrDefault())
-                .ToListAsync();
+                .Select(g => new { MacAddress = g.Key, MaxEventTime = g.Max(d => d.EventTime) });
 
-            // Categorize by issue type
-            var avIssues = quarantinedDevices
-                .Where(d => d.QuarantineCategory == "AV_Issue")
-                .Select(MapToDeviceDetails)
-                .ToList();
+            var latestDevices =
+                from d in baseQuery
+                join lt in latestTimes
+                    on new { d.MacAddress, d.EventTime }
+                    equals new { lt.MacAddress, EventTime = lt.MaxEventTime }
+                select d;
 
-            var adIssues = quarantinedDevices
-                .Where(d => d.QuarantineCategory == "AD_Issue")
-                .Select(MapToDeviceDetails)
-                .ToList();
+            // ── 3. Category split ─────────────────────────────────────────────────
+            var avQuery = latestDevices.Where(d => d.QuarantineCategory == "AV_Issue");
+            var adQuery = latestDevices.Where(d => d.QuarantineCategory == "AD_Issue");
+            var otherQuery = latestDevices.Where(d =>
+                d.QuarantineCategory == "Other" ||
+                d.QuarantineCategory == null ||
+                d.QuarantineCategory == "");
 
-            var otherIssues = quarantinedDevices
-                .Where(d => d.QuarantineCategory == "Other" || string.IsNullOrEmpty(d.QuarantineCategory))
-                .Select(MapToDeviceDetails)
-                .ToList();
+            // ── 4. Apply search to all categories ────────────────────────────────
+            if (!string.IsNullOrEmpty(search))
+            {
+                search = search.Trim();
+                avQuery = avQuery.Where(d => d.MacAddress.Contains(search) || d.Hostname.Contains(search) || d.BranchCode.Contains(search) || d.CircleCode.Contains(search));
+                adQuery = adQuery.Where(d => d.MacAddress.Contains(search) || d.Hostname.Contains(search) || d.BranchCode.Contains(search) || d.CircleCode.Contains(search));
+                otherQuery = otherQuery.Where(d => d.MacAddress.Contains(search) || d.Hostname.Contains(search) || d.BranchCode.Contains(search) || d.CircleCode.Contains(search));
+            }
 
+            // ── 5. Apply per-tab reason filter ────────────────────────────────────
+            if (!string.IsNullOrEmpty(avReason))
+                avQuery = avQuery.Where(d => d.QuarantineReason == avReason);
+            if (!string.IsNullOrEmpty(adReason))
+                adQuery = adQuery.Where(d => d.QuarantineReason == adReason);
+            if (!string.IsNullOrEmpty(otherReason))
+                otherQuery = otherQuery.Where(d => d.QuarantineReason == otherReason);
+
+            // ── 6. Summary metrics ────────────────────────────────────────────────
+            var avNotInstalled = await avQuery.CountAsync(d => !d.AVInstalled);
+            var avNotUpdated = await avQuery.CountAsync(d => d.AVInstalled && !d.AVUpdated);
+            var avNotScanned = await avQuery.CountAsync(d => d.AVInstalled && !d.AVScanned);
+
+            var adDisabled = await adQuery.CountAsync(d => d.ADAccountDisabled);
+            var adNotFound = await adQuery.CountAsync(d => !d.ADUserFound);
+            var adCertInvalid = await adQuery.CountAsync(d => d.QuarantineReason != null && d.QuarantineReason.Contains("certificate"));
+
+            var otherAuthFail = await otherQuery.CountAsync(d => d.QuarantineReason != null && d.QuarantineReason.Contains("Authentication Failed"));
+            var otherMisc = await otherQuery.CountAsync(d => d.QuarantineReason == null || !d.QuarantineReason.Contains("Authentication Failed"));
+
+            // ── 7. Paginate all 3 tabs ────────────────────────────────────────────
+            var avTotal = await avQuery.CountAsync();
+            var adTotal = await adQuery.CountAsync();
+            var otherTotal = await otherQuery.CountAsync();
+
+            var avDevices = await GetPagedDevicesAsync(avQuery, avPage, pageSize);
+            var adDevices = await GetPagedDevicesAsync(adQuery, adPage, pageSize);
+            var otherDevices = await GetPagedDevicesAsync(otherQuery, otherPage, pageSize);
+
+            // ── 8. Available reasons per tab ──────────────────────────────────────
+            var avReasons = await GetAvailableReasonsAsync(avQuery);
+            var adReasons = await GetAvailableReasonsAsync(adQuery);
+            var otherReasons = await GetAvailableReasonsAsync(otherQuery);
+
+            // ── 9. Assemble ───────────────────────────────────────────────────────
             return new QuarantineDetailsDto
             {
                 AVIssues = new AVQuarantineMetrics
                 {
-                    NotInstalled = avIssues.Count(d => !d.AVInstalled),
-                    NotUpdated = avIssues.Count(d => d.AVInstalled && !d.AVUpdated),
-                    NotScanned = avIssues.Count(d => d.AVInstalled && !d.AVScanned),
-                    Devices = avIssues
+                    NotInstalled = avNotInstalled,
+                    NotUpdated = avNotUpdated,
+                    NotScanned = avNotScanned,
+                    Devices = new PagedResult<DeviceDetailsDto>
+                    {
+                        Items = avDevices,
+                        TotalCount = avTotal,
+                        Page = avPage,
+                        PageSize = pageSize,
+                        TotalPages = (int)Math.Ceiling((double)avTotal / pageSize)
+                    },
+                    AvailableReasons = avReasons
                 },
                 ADIssues = new ADQuarantineMetrics
                 {
-                    AccountDisabled = adIssues.Count(d => d.ADAccountDisabled),
-                    UserNotFound = adIssues.Count(d => !d.ADUserFound),
-                    CertificateInvalid = adIssues.Count(d => d.QuarantineReason?.Contains("certificate") ?? false),
-                    Devices = adIssues
+                    AccountDisabled = adDisabled,
+                    UserNotFound = adNotFound,
+                    CertificateInvalid = adCertInvalid,
+                    Devices = new PagedResult<DeviceDetailsDto>
+                    {
+                        Items = adDevices,
+                        TotalCount = adTotal,
+                        Page = adPage,
+                        PageSize = pageSize,
+                        TotalPages = (int)Math.Ceiling((double)adTotal / pageSize)
+                    },
+                    AvailableReasons = adReasons
                 },
                 OtherIssues = new OtherQuarantineMetrics
                 {
-                    AuthenticationFailed = otherIssues.Count(d => d.QuarantineReason?.Contains("Authentication Failed") ?? false),
-                    Other = otherIssues.Count(d => !(d.QuarantineReason?.Contains("Authentication Failed") ?? false)),
-                    Devices = otherIssues
+                    AuthenticationFailed = otherAuthFail,
+                    Other = otherMisc,
+                    Devices = new PagedResult<DeviceDetailsDto>
+                    {
+                        Items = otherDevices,
+                        TotalCount = otherTotal,
+                        Page = otherPage,
+                        PageSize = pageSize,
+                        TotalPages = (int)Math.Ceiling((double)otherTotal / pageSize)
+                    },
+                    AvailableReasons = otherReasons
                 }
             };
+        }
+
+        // ── Reusable helpers ──────────────────────────────────────────────────────────
+        private async Task<List<DeviceDetailsDto>> GetPagedDevicesAsync(
+            IQueryable<DeviceAuthEvent> query, int page, int pageSize)
+        {
+            return await query
+                .OrderByDescending(d => d.EventTime)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(d => new DeviceDetailsDto
+                {
+                    MacAddress = d.MacAddress,
+                    Hostname = d.Hostname,
+                    Username = d.Username,
+                    NasIp = d.NasIp,
+                    AuthType = d.AuthType,
+                    AuthMethod = d.AuthMethod,
+                    HealthStatus = d.HealthStatus,
+                    Status = d.Status,
+                    CircleCode = d.CircleCode,
+                    BranchCode = d.BranchCode,
+                    EventTime = d.EventTime,
+                    QuarantineCategory = d.QuarantineCategory,
+                    QuarantineReason = d.QuarantineReason,
+                    IsolationState = d.IsolationState,
+                    AVInstalled = d.AVInstalled,
+                    AVUpdated = d.AVUpdated,
+                    AVScanned = d.AVScanned,
+                    AVProduct = d.AVProduct,
+                    ADUserFound = d.ADUserFound,
+                    ADAccountDisabled = d.ADAccountDisabled,
+                    ADDomain = d.ADDomain,
+                })
+                .ToListAsync();
+        }
+
+        private async Task<List<string>> GetAvailableReasonsAsync(IQueryable<DeviceAuthEvent> query)
+        {
+            return await query
+                .Where(d => d.QuarantineReason != null && d.QuarantineReason != "")
+                .Select(d => d.QuarantineReason)
+                .Distinct()
+                .OrderBy(r => r)
+                .ToListAsync();
         }
 
         /// <summary>
@@ -491,6 +687,7 @@ namespace ClearPulse.Infrastructure.Services
                     TotalMABMachines = g.Count(d => d.AuthType == "MAB"),
                     TotalHealthyMachines = g.Count(d => d.HealthStatus == "Healthy"),
                     TotalUnhealthyMachines = g.Count(d => d.HealthStatus == "Unhealthy"),
+
                     TotalDevices = g.Count(),
                     HealthPercentage = g.Count() > 0 ? (g.Count(d => d.HealthStatus == "Healthy") * 100.0 / g.Count()) : 0
                 })

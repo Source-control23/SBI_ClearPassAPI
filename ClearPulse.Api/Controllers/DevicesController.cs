@@ -26,39 +26,58 @@ namespace ClearPulse.Api.Controllers
         /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetDevices(
-            [FromQuery] string authType = null,       // "802.1x" or "MAB"
-            [FromQuery] string healthStatus = null,   // "Healthy" or "Unhealthy"
-            [FromQuery] bool machinesOnly = false,
-            [FromQuery] int take = 500)
+    [FromQuery] string authType = null,
+    [FromQuery] string healthStatus = null,
+    [FromQuery] bool machinesOnly = false,
+    [FromQuery] string circleCode = null,
+    [FromQuery] string search = null,
+    [FromQuery] string status = null,
+    [FromQuery] int pageNumber = 1,
+    [FromQuery] int pageSize = 10)
         {
-            if (take <= 0) take = 100;
-            if (take > 2000) take = 2000;
+            if (pageNumber < 1) pageNumber = 1;
+            if (pageSize < 1 || pageSize > 100) pageSize = 10;
 
             var tenantId = User.FindFirst("tenantId")?.Value;
             var userCircle = User.IsInRole("CircleHead")
                 ? User.FindFirst("circleCode")?.Value
-                : null;
+                : circleCode;
 
             var q = _db.DeviceAuthEvents.AsQueryable();
 
             if (!string.IsNullOrEmpty(tenantId))
                 q = q.Where(d => d.TenantId == tenantId);
-
             if (!string.IsNullOrEmpty(userCircle))
                 q = q.Where(d => d.CircleCode == userCircle);
-
             if (!string.IsNullOrWhiteSpace(authType))
                 q = q.Where(d => d.AuthType == authType);
-
             if (!string.IsNullOrWhiteSpace(healthStatus))
                 q = q.Where(d => d.HealthStatus == healthStatus);
-
             if (machinesOnly)
                 q = q.Where(d => d.Username != null && d.Username.StartsWith("host/"));
 
+            // Status filter
+            if (!string.IsNullOrWhiteSpace(status) && status != "All")
+                q = q.Where(d => d.Status == status);
+
+            // Search filter
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                search = search.ToLower();
+                q = q.Where(d =>
+                    (d.MacAddress != null && d.MacAddress.ToLower().Contains(search)) ||
+                    (d.Username != null && d.Username.ToLower().Contains(search)) ||
+                    (d.NasIp != null && d.NasIp.ToLower().Contains(search)) ||
+                    (d.CircleCode != null && d.CircleCode.ToLower().Contains(search))
+                );
+            }
+
+            var totalRecords = await q.CountAsync();
+
             var list = await q
                 .OrderByDescending(d => d.EventTime)
-                .Take(take)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
                 .Select(d => new DeviceDto
                 {
                     MacAddress = d.MacAddress ?? string.Empty,
@@ -72,7 +91,14 @@ namespace ClearPulse.Api.Controllers
                 })
                 .ToListAsync();
 
-            return Ok(list);
+            return Ok(new
+            {
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalRecords = totalRecords,
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data = list
+            });
         }
 
         /// <summary>

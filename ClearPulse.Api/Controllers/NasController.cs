@@ -23,9 +23,7 @@ namespace ClearPulse.Api.Controllers
         /// Shows total NAS and which ones are actively sending RADIUS requests
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll(
-            [FromQuery] bool? activeOnly = null,
-            [FromQuery] string circleCode = null)
+        public async Task<IActionResult> GetAll([FromQuery] bool? activeOnly = null,[FromQuery] string circleCode = null,[FromQuery] string? search = null,[FromQuery] int pageNumber = 1,[FromQuery] int pageSize = 10)
         {
             var tenantId = User.FindFirst("tenantId")?.Value;
             var userCircle = User.IsInRole("CircleHead")
@@ -34,25 +32,61 @@ namespace ClearPulse.Api.Controllers
 
             var q = _db.NasDevices.AsQueryable();
 
+            // Tenant filter
             if (!string.IsNullOrEmpty(tenantId))
                 q = q.Where(n => n.TenantId == tenantId);
 
+            // Circle filter
             if (!string.IsNullOrEmpty(userCircle))
                 q = q.Where(n => n.CircleCode == userCircle);
 
-            if (activeOnly.HasValue && activeOnly.Value)
-                q = q.Where(n => n.IsActive && n.RequestCount > 0);
+            // Search filter
+            if (!string.IsNullOrEmpty(search))
+            {
+                search = search.ToLower();
+                q = q.Where(n =>
+                    n.NasIp.ToLower().Contains(search) ||
+                    n.CircleCode.ToLower().Contains(search) ||
+                    n.SourceSystem.ToLower().Contains(search) ||
+                    n.EventType.ToLower().Contains(search)
+                );
+            }
 
-            var list = await q
+            // ✅ Summary counts BEFORE applying activeOnly filter
+            // so cards always show real totals for the tenant/circle/search
+            var totalNASDevices = await q.CountAsync();
+            var activeNASDevices = await q.CountAsync(n => n.IsActive && n.RequestCount > 0);
+            var inactiveNASDevices = await q.CountAsync(n => !n.IsActive || n.RequestCount == 0);
+
+            // Active filter applied AFTER summary counts — only affects table rows
+            if (activeOnly.HasValue)
+            {
+                if (activeOnly.Value)
+                    q = q.Where(n => n.IsActive && n.RequestCount > 0);
+                else
+                    q = q.Where(n => !n.IsActive || n.RequestCount == 0);
+            }
+
+            // Total records for pagination (respects activeOnly)
+            var totalRecords = await q.CountAsync();
+
+            // Sorting + Pagination
+            var devices = await q
                 .OrderByDescending(n => n.LastSeen)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
 
             return Ok(new
             {
-                TotalNASDevices = list.Count,
-                ActiveNASDevices = list.Count(n => n.IsActive && n.RequestCount > 0),
-                InactiveNASDevices = list.Count(n => !n.IsActive || n.RequestCount == 0),
-                Devices = list
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalRecords = totalRecords,
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                TotalNASDevices = totalNASDevices,
+                ActiveNASDevices = activeNASDevices,
+                InactiveNASDevices = inactiveNASDevices,
+                Devices = devices
             });
         }
 

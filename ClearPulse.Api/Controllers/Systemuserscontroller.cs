@@ -19,27 +19,45 @@ namespace ClearPulse.Api.Controllers
         /// Get all system users
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<IActionResult> GetAll([FromQuery] int pageNumber = 1,[FromQuery] int pageSize = 10)
         {
-            var users = await _db.SystemUsers
+            // Validate inputs
+            if (pageNumber < 1) pageNumber = 1;
+            if (pageSize < 1 || pageSize > 100) pageSize = 10;
+
+            var query = _db.SystemUsers.AsQueryable();
+
+            // Total records count
+            var totalRecords = await query.CountAsync();
+
+            // Fetch paginated data
+            var users = await query
                 .OrderBy(u => u.Username)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .Select(u => new
+                {
+                    u.Id,
+                    u.Name,
+                    u.Username,
+                    u.Email,
+                    u.Role,
+                    u.CircleCode,
+                    u.TenantId,
+                    u.IsActive,
+                    u.CreatedDate,
+                    u.LastLogin
+                })
                 .ToListAsync();
 
-            // Don't return password hashes
-            var result = users.Select(u => new
+            return Ok(new
             {
-                u.Id,
-                u.Username,
-                u.Email,
-                u.Role,
-                u.CircleCode,
-                u.TenantId,
-                u.IsActive,
-                u.CreatedDate,
-                u.LastLogin
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalRecords = totalRecords,
+                TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+                Data = users
             });
-
-            return Ok(result);
         }
 
         /// <summary>
@@ -76,15 +94,24 @@ namespace ClearPulse.Api.Controllers
             if (await _db.SystemUsers.AnyAsync(u => u.Username == dto.Username))
                 return BadRequest("Username already exists");
 
+            // Business logic: CircleCode should only be set for 'circle' role
+            string? circleCode = dto.Role?.ToLower() == "circle" ? dto.CircleCode : null;
+
+            // Validate: If role is 'circle', circleCode is required
+            if (dto.Role?.ToLower() == "circle" && string.IsNullOrWhiteSpace(circleCode))
+                return BadRequest(new { message = "CircleCode is required for Circle role" });
+
             var user = new SystemUser
             {
                 Username = dto.Username,
+                Name = dto.Name,
                 Email = dto.Email,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
                 Role = dto.Role,
                 CircleCode = dto.CircleCode,
                 TenantId = dto.TenantId,
                 IsActive = dto.IsActive,
+                AuthorizedIP = dto.AuthorizedIP,
                 CreatedDate = DateTime.UtcNow
             };
 
@@ -99,6 +126,7 @@ namespace ClearPulse.Api.Controllers
                 user.Role,
                 user.CircleCode,
                 user.TenantId,
+                user.AuthorizedIP,
                 user.IsActive
             });
         }
@@ -120,10 +148,12 @@ namespace ClearPulse.Api.Controllers
                 return BadRequest("Username already exists");
 
             user.Username = dto.Username;
+            user.Name = dto.Name;
             user.Email = dto.Email;
             user.Role = dto.Role;
             user.CircleCode = dto.CircleCode;
             user.TenantId = dto.TenantId;
+            user.AuthorizedIP = dto.AuthorizedIP;
             user.IsActive = dto.IsActive;
 
             // Only update password if provided
@@ -137,10 +167,12 @@ namespace ClearPulse.Api.Controllers
             return Ok(new
             {
                 user.Id,
+                user.Name,
                 user.Username,
                 user.Email,
                 user.Role,
                 user.CircleCode,
+                user.AuthorizedIP,
                 user.TenantId,
                 user.IsActive
             });
@@ -184,10 +216,12 @@ namespace ClearPulse.Api.Controllers
     public class SystemUserDto
     {
         public string Username { get; set; }
+        public string Name { get; set; }
         public string Email { get; set; }
-        public string Password { get; set; }
+        public string? Password { get; set; }
         public string Role { get; set; }
-        public string CircleCode { get; set; }
+        public string? CircleCode { get; set; }
+        public string? AuthorizedIP { get; set; }
         public string TenantId { get; set; }
         public bool IsActive { get; set; } = true;
     }

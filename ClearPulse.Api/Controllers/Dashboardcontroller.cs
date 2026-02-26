@@ -160,15 +160,23 @@ namespace ClearPulse.Api.Controllers
         /// As per SBI requirements for quarantine reporting
         /// </summary>
         [HttpGet("quarantine")]
-        public async Task<ActionResult<QuarantineDetailsDto>> GetQuarantineDetails()
+        public async Task<ActionResult<QuarantineDetailsDto>> GetQuarantineDetails([FromQuery] int avPage = 1,[FromQuery] int adPage = 1,[FromQuery] int otherPage = 1,[FromQuery] int pageSize = 10,[FromQuery] string? search = null,
+     [FromQuery] string? avReason = null,[FromQuery] string? adReason = null,[FromQuery] string? otherReason = null, [FromQuery] string? circleCode = null)
         {
             var tenantId = User.FindFirst("tenantId")?.Value;
-            var circleCode = User.IsInRole("CircleHead")
-                ? User.FindFirst("circleCode")?.Value
-                : null;
+            var circle = !string.IsNullOrEmpty(circleCode) && circleCode != "All"
+         ? circleCode
+         : User.IsInRole("CircleHead")
+             ? User.FindFirst("circleCode")?.Value
+             : null;
 
-            var details = await _dashboardService.GetQuarantineDetailsAsync(tenantId, circleCode);
-            return Ok(details);
+            var result = await _dashboardService.GetQuarantineDetailsAsync(
+                tenantId, circle,
+                avPage, adPage, otherPage,
+                pageSize, search,
+                avReason, adReason, otherReason);
+
+            return Ok(result);
         }
 
         /// <summary>
@@ -267,7 +275,7 @@ namespace ClearPulse.Api.Controllers
             csv.AppendLine("Category,MAC Address,Hostname,Username,Circle Code,Quarantine Reason,Event Time");
 
             // AV Issues
-            foreach (var device in quarantine.AVIssues.Devices ?? new List<DeviceDetailsDto>())
+            foreach (var device in quarantine.AVIssues?.Devices?.Items ?? new List<DeviceDetailsDto>())
             {
                 csv.AppendLine($"AV Issue,{EscapeCSV(device.MacAddress)}," +
                               $"{EscapeCSV(device.Hostname)}," +
@@ -278,7 +286,7 @@ namespace ClearPulse.Api.Controllers
             }
 
             // AD Issues
-            foreach (var device in quarantine.ADIssues.Devices ?? new List<DeviceDetailsDto>())
+            foreach (var device in quarantine.ADIssues?.Devices?.Items ?? new List<DeviceDetailsDto>())
             {
                 csv.AppendLine($"AD Issue,{EscapeCSV(device.MacAddress)}," +
                               $"{EscapeCSV(device.Hostname)}," +
@@ -289,7 +297,7 @@ namespace ClearPulse.Api.Controllers
             }
 
             // Other Issues
-            foreach (var device in quarantine.OtherIssues.Devices ?? new List<DeviceDetailsDto>())
+            foreach (var device in quarantine.OtherIssues?.Devices?.Items ?? new List<DeviceDetailsDto>())
             {
                 csv.AppendLine($"Other Issue,{EscapeCSV(device.MacAddress)}," +
                               $"{EscapeCSV(device.Hostname)}," +
