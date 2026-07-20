@@ -3,6 +3,7 @@ using ClearPulse.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace ClearPulse.Api.Controllers
 {
@@ -25,15 +26,17 @@ namespace ClearPulse.Api.Controllers
         /// Circle Heads are automatically restricted to their circle
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetDevices(
-    [FromQuery] string authType = null,
-    [FromQuery] string healthStatus = null,
-    [FromQuery] bool machinesOnly = false,
-    [FromQuery] string circleCode = null,
-    [FromQuery] string search = null,
-    [FromQuery] string status = null,
-    [FromQuery] int pageNumber = 1,
-    [FromQuery] int pageSize = 10)
+public async Task<IActionResult> GetDevices(
+     [FromQuery] string authType = null,
+     [FromQuery] string healthStatus = null,
+     [FromQuery] bool machinesOnly = false,
+     [FromQuery] string circleCode = null,
+     [FromQuery] string search = null,
+     [FromQuery] string status = null,
+     [FromQuery] int pageNumber = 1,
+     [FromQuery] int pageSize = 10,
+     [FromQuery] DateTime? fromDate = null,   // ← ADD THIS
+     [FromQuery] DateTime? toDate = null)     // ← ADD THIS
         {
             if (pageNumber < 1) pageNumber = 1;
             if (pageSize < 1 || pageSize > 100) pageSize = 10;
@@ -55,12 +58,8 @@ namespace ClearPulse.Api.Controllers
                 q = q.Where(d => d.HealthStatus == healthStatus);
             if (machinesOnly)
                 q = q.Where(d => d.Username != null && d.Username.StartsWith("host/"));
-
-            // Status filter
             if (!string.IsNullOrWhiteSpace(status) && status != "All")
                 q = q.Where(d => d.Status == status);
-
-            // Search filter
             if (!string.IsNullOrWhiteSpace(search))
             {
                 search = search.ToLower();
@@ -72,8 +71,13 @@ namespace ClearPulse.Api.Controllers
                 );
             }
 
-            var totalRecords = await q.CountAsync();
+            // ── Date range filter on EventTime ──────────────────────────────────
+            if (fromDate.HasValue)
+                q = q.Where(d => d.EventTime >= fromDate.Value);   // ← ADD THIS
+            if (toDate.HasValue)
+                q = q.Where(d => d.EventTime <= toDate.Value);     // ← ADD THIS
 
+            var totalRecords = await q.CountAsync();
             var list = await q
                 .OrderByDescending(d => d.EventTime)
                 .Skip((pageNumber - 1) * pageSize)

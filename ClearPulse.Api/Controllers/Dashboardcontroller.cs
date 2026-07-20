@@ -27,14 +27,16 @@ namespace ClearPulse.Api.Controllers
         /// Includes: a) 802.1x, b) MAB, c) Healthy, d) Unhealthy, e) NAS, f) Circle breakdown, h) Cluster, i) AD
         /// </summary>
         [HttpGet("unified")]
-        public async Task<ActionResult<DashboardMetricsDto>> GetUnifiedDashboard()
+        public async Task<ActionResult<DashboardMetricsDto>> GetUnifiedDashboard([FromQuery] string timeFilter = "today", [FromQuery] string? circleCode = null)
         {
             var tenantId = User.FindFirst("tenantId")?.Value;
-            var circleCode = User.IsInRole("CircleHead")
-                ? User.FindFirst("circleCode")?.Value
-                : null;
+            // Circle Head should only see their own circle
+            if (User.IsInRole("CircleHead"))
+            {
+                circleCode = User.FindFirst("circleCode")?.Value;
+            }
 
-            var metrics = await _dashboardService.GetUnifiedDashboardAsync(tenantId, circleCode);
+            var metrics = await _dashboardService.GetUnifiedDashboardAsync(tenantId, circleCode, timeFilter);
             return Ok(metrics);
         }
 
@@ -161,7 +163,7 @@ namespace ClearPulse.Api.Controllers
         /// </summary>
         [HttpGet("quarantine")]
         public async Task<ActionResult<QuarantineDetailsDto>> GetQuarantineDetails([FromQuery] int avPage = 1,[FromQuery] int adPage = 1,[FromQuery] int otherPage = 1,[FromQuery] int pageSize = 10,[FromQuery] string? search = null,
-     [FromQuery] string? avReason = null,[FromQuery] string? adReason = null,[FromQuery] string? otherReason = null, [FromQuery] string? circleCode = null)
+     [FromQuery] string? avReason = null,[FromQuery] string? adReason = null,[FromQuery] string? otherReason = null, [FromQuery] string? circleCode = null, [FromQuery] string? timeFilter = "today")
         {
             var tenantId = User.FindFirst("tenantId")?.Value;
             var circle = !string.IsNullOrEmpty(circleCode) && circleCode != "All"
@@ -174,7 +176,7 @@ namespace ClearPulse.Api.Controllers
                 tenantId, circle,
                 avPage, adPage, otherPage,
                 pageSize, search,
-                avReason, adReason, otherReason);
+                avReason, adReason, otherReason,timeFilter);
 
             return Ok(result);
         }

@@ -23,7 +23,7 @@ namespace ClearPulse.Api.Controllers
         /// Shows total NAS and which ones are actively sending RADIUS requests
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] bool? activeOnly = null,[FromQuery] string circleCode = null,[FromQuery] string? search = null,[FromQuery] int pageNumber = 1,[FromQuery] int pageSize = 10)
+        public async Task<IActionResult> GetAll([FromQuery] bool? activeOnly = null,[FromQuery] string circleCode = null,[FromQuery] string? search = null,[FromQuery] int pageNumber = 1,[FromQuery] int pageSize = 10, [FromQuery] string? timeFilter = "today")
         {
             var tenantId = User.FindFirst("tenantId")?.Value;
             var userCircle = User.IsInRole("CircleHead")
@@ -31,6 +31,22 @@ namespace ClearPulse.Api.Controllers
                 : circleCode;
 
             var q = _db.NasDevices.AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(timeFilter))
+            {
+                var today = DateTime.Today;
+
+                if (timeFilter.Equals("today", StringComparison.OrdinalIgnoreCase))
+                {
+                    q = q.Where(x => x.LastSeen >= today);
+                }
+                else if (timeFilter.Equals("week", StringComparison.OrdinalIgnoreCase))
+                {
+                    var weekStart = today.AddDays(-6);
+
+                    q = q.Where(x => x.LastSeen >= weekStart);
+                }
+            }
 
             // Tenant filter
             if (!string.IsNullOrEmpty(tenantId))
@@ -45,10 +61,10 @@ namespace ClearPulse.Api.Controllers
             {
                 search = search.ToLower();
                 q = q.Where(n =>
-                    n.NasIp.ToLower().Contains(search) ||
-                    n.CircleCode.ToLower().Contains(search) ||
-                    n.SourceSystem.ToLower().Contains(search) ||
-                    n.EventType.ToLower().Contains(search)
+     (n.NasIp ?? "").ToLower().Contains(search) ||
+     (n.CircleCode ?? "").ToLower().Contains(search) ||
+     (n.SourceSystem ?? "").ToLower().Contains(search) ||
+     (n.EventType ?? "").ToLower().Contains(search)
                 );
             }
 

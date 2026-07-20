@@ -30,16 +30,18 @@ namespace ClearPulse.Service
         private readonly DatabaseWriter _databaseWriter;
         private readonly DeviceInventoryManager _inventoryManager;
         private readonly DeviceInventoryBuilder _inventoryBuilder;
+        private readonly ILogger<EventClassifier> _eventClassifierLogger;
 
-        public Worker(ILogger<Worker> logger, IConfiguration configuration)
+        public Worker(ILogger<Worker> logger, IConfiguration configuration, ILogger<EventClassifier> eventClassifierLogger)
         {
             _logger = logger;
             _configuration = configuration;
             _defaultTenantId = _configuration.GetValue<string>("LogProcessor:DefaultTenantId") ?? "SBI-TENANT-1";
+            _eventClassifierLogger = eventClassifierLogger;
 
             // Initialize service components
             _logParser = new LogParser();
-            _eventClassifier = new EventClassifier(_logParser, _defaultTenantId);
+            _eventClassifier = new EventClassifier(_logParser, _defaultTenantId, eventClassifierLogger);
             _databaseWriter = new DatabaseWriter(logger);
             _inventoryManager = new DeviceInventoryManager(logger);
             _inventoryBuilder = new DeviceInventoryBuilder();
@@ -162,12 +164,12 @@ namespace ClearPulse.Service
 
             // Extract common fields
             string eventCode = _logParser.GetJsonString(root, "event", "code") ?? "";
-            string alerts = _logParser.GetJsonString(root, "Common.Alerts") ?? "";
-            string nasIp = _logParser.GetJsonString(root, "Common.NAS-IP-Address");
-            string user = _logParser.GetJsonString(root, "Common.Username") ?? "";
+            string alerts = _logParser.GetMappedJsonString(root, "alerts") ?? "";
+            string nasIp = _logParser.GetMappedJsonString(root, "nasIp");
+            string user = _logParser.GetMappedJsonString(root, "username");
             DateTime eventTime = _logParser.ParseTimestamp(root);
 
-            var (hostname, circleCode, branchCode, domain) = _logParser.ParseUsername(user);
+            var (hostname, circleCode, domain) = _logParser.ParseUsername(user);
 
             bool typeFound = false;
 
@@ -192,6 +194,20 @@ namespace ClearPulse.Service
                 {
                     batches["QuarantineDetails"].Add(quarantine);
                 }
+
+                // Store NAS only for 802.1X
+                //if (deviceAuth.AuthType.Equals("802.1x", StringComparison.OrdinalIgnoreCase) &&
+                //    !string.IsNullOrWhiteSpace(deviceAuth.NasIp) &&
+                //    !nasIpTracker.Contains(deviceAuth.NasIp))
+                //{
+                //    var nasDevice = _eventClassifier.CreateNasDevice(deviceAuth.NasIp, deviceAuth.CircleCode, deviceAuth.EventTime, line);
+
+                //    if (nasDevice != null)
+                //    {
+                //        batches["NasDevices"].Add(nasDevice);
+                //        nasIpTracker.Add(deviceAuth.NasIp);
+                //    }
+                //}
 
                 typeFound = true;
             }

@@ -32,6 +32,8 @@
         public List<DeviceDetailsDto> deviceDetails { get; set; }
         // f) Circle-wise breakdown
         public List<CircleMetricsDto> CircleBreakdown { get; set; }
+
+        public QuarantineDetailsDto Quarantine { get; set; }
     }
 
     /// <summary>

@@ -1,0 +1,58 @@
+{
+  "username": [
+    "Common.Username",
+    "Endpoint.Username",
+    "destination.user.name"
+  ],
+  "macAddress": [
+    "Common.Host-MAC-Address",
+    "Endpoint.MAC-Address",
+    "destination.mac"
+  ],
+  "timestamp": [
+    "@timestamp",
+    "Common.Request-Timestamp",
+    "Endpoint.Request-Timestamp"
+  ],
+  "ipAddress": [
+    "Common.IP-Address",
+    "Endpoint.IP-Address",
+    "destination.ip"
+  ],
+  "hostname": [
+    "Common.Hostname",
+    "Endpoint.Hostname",
+    "dvcHost"
+  ],
+  "healthstatus": [
+    "Common.System-Posture-Token",
+    "Endpoint.System-Posture-Token",
+    "event.outcome",
+    "ArubaClearpassEndpointAntivirusAPT",
+    "Endpoint.Antivirus-APT"
+  ],
+  "service": [
+    "Common.Service"
+  ],
+  "enforcement": [
+    "Common.Enforcement",
+    "Common.Enforcement-Profile"
+  ],
+  "nasIp": [
+    "Common.NAS-IP-Address"
+  ],
+  "errorCode": [
+    "Common.Error-Code"
+  ],
+  "alerts": [
+    "Common.Alerts"
+  ],
+  "antivirusInput": [
+    "Endpoint.Antivirus-Input",
+    "ArubaClearpassEndpointAntivirusInput"
+  ],
+  "antivirusOutput": [
+    "Endpoint.Antivirus-Output",
+    "ArubaClearpassEndpointAntivirusOutput"
+  ]
+}
