@@ -12,6 +12,8 @@ namespace ClearPulse.Core.DTOs
         public string CircleCode { get; set; }
         public string AuthType { get; set; }
         public string Status { get; set; }
+        public string HealthStatus { get; set; }
+        public string EnforcementProfile { get; set; }
         public string? Reason { get; set; }
         public DateTime? EventTime { get; set; }
     }

@@ -288,6 +288,9 @@ namespace ClearPulse.Infrastructure.Migrations
                     b.Property<int?>("CriticalPatchesMissing")
                         .HasColumnType("int");
 
+                    b.Property<string>("EnforcementProfile")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int?>("ErrorCode")
                         .HasColumnType("int");
 

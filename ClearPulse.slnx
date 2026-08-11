@@ -3,5 +3,4 @@
   <Project Path="ClearPulse.Core/ClearPulse.Core.csproj" />
   <Project Path="ClearPulse.Infrastructure/ClearPulse.Infrastructure.csproj" />
   <Project Path="ClearPulse.Service/ClearPulse.Service.csproj" Id="bae96440-0dd4-4e27-99e1-b49c4fd944ab" />
-  <Project Path="WebApplication1/WebApplication1.csproj" Id="3ce64c79-14bf-4209-94cd-268b527e25c7" />
-</Solution>
+ </Solution>

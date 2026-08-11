@@ -26,17 +26,18 @@ namespace ClearPulse.Api.Controllers
         /// Circle Heads are automatically restricted to their circle
         /// </summary>
         [HttpGet]
-public async Task<IActionResult> GetDevices(
-     [FromQuery] string authType = null,
-     [FromQuery] string healthStatus = null,
-     [FromQuery] bool machinesOnly = false,
-     [FromQuery] string circleCode = null,
-     [FromQuery] string search = null,
-     [FromQuery] string status = null,
-     [FromQuery] int pageNumber = 1,
-     [FromQuery] int pageSize = 10,
-     [FromQuery] DateTime? fromDate = null,   // ← ADD THIS
-     [FromQuery] DateTime? toDate = null)     // ← ADD THIS
+        public async Task<IActionResult> GetDevices(
+      [FromQuery] string authType = null,
+      [FromQuery] string healthStatus = null,
+      [FromQuery] bool machinesOnly = false,
+      [FromQuery] string circleCode = null,
+      [FromQuery] string search = null,
+      [FromQuery] string status = null,
+      [FromQuery] bool authenticatedOnly = false,
+      [FromQuery] int pageNumber = 1,
+      [FromQuery] int pageSize = 10,
+      [FromQuery] DateTime? fromDate = null,
+      [FromQuery] DateTime? toDate = null)
         {
             if (pageNumber < 1) pageNumber = 1;
             if (pageSize < 1 || pageSize > 100) pageSize = 10;
@@ -46,7 +47,7 @@ public async Task<IActionResult> GetDevices(
                 ? User.FindFirst("circleCode")?.Value
                 : circleCode;
 
-            var q = _db.DeviceAuthEvents.AsQueryable();
+            var q = _db.DeviceAuthEvents.AsNoTracking().AsQueryable();
 
             if (!string.IsNullOrEmpty(tenantId))
                 q = q.Where(d => d.TenantId == tenantId);
@@ -56,29 +57,56 @@ public async Task<IActionResult> GetDevices(
                 q = q.Where(d => d.AuthType == authType);
             if (!string.IsNullOrWhiteSpace(healthStatus))
                 q = q.Where(d => d.HealthStatus == healthStatus);
+            if (authenticatedOnly)
+            {
+                q = q.Where(d =>
+                    (d.AuthType == "802.1x" || d.AuthType == "MAB") &&
+                    d.HealthStatus == "Healthy");
+            }
             if (machinesOnly)
                 q = q.Where(d => d.Username != null && d.Username.StartsWith("host/"));
             if (!string.IsNullOrWhiteSpace(status) && status != "All")
                 q = q.Where(d => d.Status == status);
             if (!string.IsNullOrWhiteSpace(search))
             {
-                search = search.ToLower();
+                var s = search.ToLower();
                 q = q.Where(d =>
-                    (d.MacAddress != null && d.MacAddress.ToLower().Contains(search)) ||
-                    (d.Username != null && d.Username.ToLower().Contains(search)) ||
-                    (d.NasIp != null && d.NasIp.ToLower().Contains(search)) ||
-                    (d.CircleCode != null && d.CircleCode.ToLower().Contains(search))
+                    (d.MacAddress != null && d.MacAddress.ToLower().Contains(s)) ||
+                    (d.Username != null && d.Username.ToLower().Contains(s)) ||
+                    (d.NasIp != null && d.NasIp.ToLower().Contains(s)) ||
+                    (d.CircleCode != null && d.CircleCode.ToLower().Contains(s))
                 );
             }
 
-            // ── Date range filter on EventTime ──────────────────────────────────
+            // ── Date range filter on EventTime ──────────────────────────────
             if (fromDate.HasValue)
-                q = q.Where(d => d.EventTime >= fromDate.Value);   // ← ADD THIS
-            if (toDate.HasValue)
-                q = q.Where(d => d.EventTime <= toDate.Value);     // ← ADD THIS
+            {
+                var from = fromDate.Value.Date;
+                q = q.Where(d => d.EventTime >= from);
+            }
 
-            var totalRecords = await q.CountAsync();
-            var list = await q
+            if (toDate.HasValue)
+            {
+                var to = toDate.Value.TimeOfDay == TimeSpan.Zero
+                    ? toDate.Value.Date.AddDays(1).AddTicks(-1)
+                    : toDate.Value;
+                q = q.Where(d => d.EventTime <= to);
+            }
+            else
+            {
+                q = q.Where(d => d.EventTime <= DateTime.Now);
+            }
+
+            var latestDevices = await q
+       .GroupBy(d => d.MacAddress)
+       .Select(g => g.OrderByDescending(d => d.EventTime).FirstOrDefault())
+       .ToListAsync();
+
+            // Total Records
+            var totalRecords = latestDevices.Count;
+
+            // Paging
+            var pageData = latestDevices
                 .OrderByDescending(d => d.EventTime)
                 .Skip((pageNumber - 1) * pageSize)
                 .Take(pageSize)
@@ -90,10 +118,12 @@ public async Task<IActionResult> GetDevices(
                     CircleCode = d.CircleCode ?? string.Empty,
                     AuthType = d.AuthType ?? string.Empty,
                     Status = d.Status ?? string.Empty,
+                    HealthStatus = d.HealthStatus ?? string.Empty,
+                    EnforcementProfile = d.EnforcementProfile ?? string.Empty,
                     Reason = d.Reason,
                     EventTime = d.EventTime
                 })
-                .ToListAsync();
+                .ToList();
 
             return Ok(new
             {
@@ -101,7 +131,7 @@ public async Task<IActionResult> GetDevices(
                 PageSize = pageSize,
                 TotalRecords = totalRecords,
                 TotalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
-                Data = list
+                Data = pageData
             });
         }
 

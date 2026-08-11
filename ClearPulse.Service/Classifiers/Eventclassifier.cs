@@ -1,6 +1,7 @@
-﻿using System;
+﻿using ClearPulse.Core.Entities;
+using ClearPulse.Service.Parsers;
+using System;
 using System.Text.Json;
-using ClearPulse.Core.Entities;
 
 namespace ClearPulse.Service.Classifiers
 {
@@ -101,8 +102,7 @@ namespace ClearPulse.Service.Classifiers
             return false;
         }
 
-        public bool TryClassifyDeviceAuth(JsonElement root, string user, DateTime eventTime,
-      string line, out DeviceAuthEvent entity, out QuarantineDetail quarantine)
+        public bool TryClassifyDeviceAuth(JsonElement root, string user, DateTime eventTime, string line, out DeviceAuthEvent entity, out QuarantineDetail quarantine)
         {
             entity = null;
             quarantine = null;
@@ -128,15 +128,15 @@ namespace ClearPulse.Service.Classifiers
                 string postureToken = _parser.GetMappedJsonString(root, "healthstatus");
                 string service = _parser.GetMappedJsonString(root, "service");
                 string enforcement = _parser.GetMappedJsonString(root, "enforcement");
+                string eventOutcome = _parser.GetMappedJsonString(root, "eventOutcome");
+                string loginStatus = _parser.GetMappedJsonString(root, "status");
                 //AV
                 string antivirusInput = _parser.GetMappedJsonString(root, "antivirusInput");
                 string antivirusOutput = _parser.GetMappedJsonString(root, "antivirusOutput");
                 string antivirusApt = _parser.GetMappedJsonString(root, "antivirusApt");
                 bool isAVLog = !string.IsNullOrWhiteSpace(antivirusInput) || !string.IsNullOrWhiteSpace(antivirusOutput);
 
-                _logger.LogInformation(
-        "Mapped Values | MacAddress={Mac} | Username={User} | NasIp={NasIp} | Alerts={Alerts} | ErrorCode={ErrorCode} | PostureToken={Posture} | Service={Service} | AVInput={AVInput} | AVOutput={AVOutput} | enforcement={enforcement}",
-        mac, user, nasIp, alerts, errorCodeStr, postureToken, service, antivirusInput,  antivirusOutput , enforcement);
+                _logger.LogInformation("Mapped Values | MacAddress={Mac} | Username={User} | NasIp={NasIp} | Alerts={Alerts} | ErrorCode={ErrorCode} | PostureToken={Posture} | Service={Service} | LogInStatus={LogInStatus} | AVOutput={AVOutput} | enforcement={enforcement}", mac, user, nasIp, alerts, errorCodeStr, postureToken, service, loginStatus ,  antivirusOutput , enforcement);
 
                 int? errorCode = _parser.ExtractErrorCode(errorCodeStr, alerts);
 
@@ -157,7 +157,7 @@ namespace ClearPulse.Service.Classifiers
                      avScanned,
                      avProduct,
                      avReason,
-                     avCategory) = _parser.ParseAVStatus(antivirusInput);
+                     avCategory) = _parser.ParseAVStatus(antivirusOutput);
                 }
 
                 var (quarantineCategory, quarantineReason, isolationState) =
@@ -169,7 +169,7 @@ namespace ClearPulse.Service.Classifiers
 
                 string authType = _parser.DetermineAuthType(service);
                 //string authMethod = _parser.DetermineAuthMethod(alerts);
-                string healthStatus = _parser.DetermineHealthStatus(postureToken, antivirusApt, errorCode , enforcement);
+                string healthStatus = _parser.DetermineHealthStatus(authType, loginStatus, postureToken, enforcement, errorCode, antivirusApt);
                 _logger.LogInformation("NasIp={NasIp}, Username={Username}, Hostname={Hostname}, AuthType={AuthType}, Health={Health}", nasIp, user, hostname, authType, healthStatus);
                 entity = new DeviceAuthEvent
                 {
@@ -183,6 +183,7 @@ namespace ClearPulse.Service.Classifiers
                     Reason = !string.IsNullOrWhiteSpace(alerts) ? alerts : (isAVLog ? finalReason : null),
                     QuarantineReason = finalReason ?? "",
                     QuarantineCategory = finalCategory ?? "",
+                    EnforcementProfile = enforcement ?? "",
                     IsolationState = isolationState,
                     AVInstalled = avInstalled,
                     AVUpdated = avUpdated,
@@ -196,19 +197,19 @@ namespace ClearPulse.Service.Classifiers
                     CircleCode = circleCode,
                     EventType = "Authentication",
                     EventTime = eventTime,
-                    Status = healthStatus == "Healthy" ? "Accept" : "Quarantine",
+                    Status = !string.IsNullOrWhiteSpace(loginStatus) ? loginStatus: (isAVLog && !string.IsNullOrWhiteSpace(eventOutcome) ? eventOutcome : (healthStatus == "Healthy" ? "Unknown" : "Unhealthy")),
                     SourceSystem = "ClearPass",
                     MetadataJson = line,
                     TenantId = _defaultTenantId
                 };
 
                 _logger.LogInformation(
-                    "Successfully created DeviceAuthEvent. MAC={Mac}, User={User}, Health={Health}, AuthType={AuthType} , Reason={Reason}",
+                    "Successfully created DeviceAuthEvent. MAC={Mac}, User={User}, Health={Health}, AuthType={AuthType} , Reason={Reason} ,loginStatus ={loginStatus} , QuarantineReason = {QuarantineReason},QuarantineCategory ={QuarantineCategory}, EnforcementProfile = {EnforcementProfile} ",
                     entity.MacAddress,
                     entity.Username,
                     entity.HealthStatus,
                     entity.AuthType,
-                    entity.Reason);
+                    entity.Reason , entity.Status , entity.QuarantineReason , entity.QuarantineCategory, entity.EnforcementProfile);
 
                 if (!string.IsNullOrEmpty(finalCategory))
                 {

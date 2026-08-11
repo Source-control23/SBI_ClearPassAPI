@@ -100,6 +100,7 @@ namespace ClearPulse.Service.Data
                     dt.Columns.Add("AuthMethod", typeof(string));
                     dt.Columns.Add("ErrorCode", typeof(int)).AllowDBNull = true;
                     dt.Columns.Add("Reason", typeof(string));
+                    dt.Columns.Add("EnforcementProfile", typeof(string));
                     dt.Columns.Add("BranchCode", typeof(string));
                     dt.Columns.Add("QuarantineReason", typeof(string));
                     dt.Columns.Add("QuarantineCategory", typeof(string));
@@ -213,6 +214,7 @@ namespace ClearPulse.Service.Data
                 row["AuthMethod"] = (object)a.AuthMethod ?? DBNull.Value;
                 row["ErrorCode"] = (object)a.ErrorCode ?? DBNull.Value;
                 row["Reason"] = (object)a.Reason ?? DBNull.Value;
+                row["EnforcementProfile"] = (object)a.EnforcementProfile ?? DBNull.Value;
                 row["BranchCode"] = (object)a.BranchCode ?? DBNull.Value;
                 row["QuarantineReason"] = (object)a.QuarantineReason ?? DBNull.Value;
                 row["QuarantineCategory"] = (object)a.QuarantineCategory ?? DBNull.Value;

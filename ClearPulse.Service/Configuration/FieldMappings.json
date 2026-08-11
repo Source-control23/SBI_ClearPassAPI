@@ -26,17 +26,17 @@
   ],
   "healthstatus": [
     "Common.System-Posture-Token",
-    "Endpoint.System-Posture-Token",
-    "event.outcome",
     "ArubaClearpassEndpointAntivirusAPT",
     "Endpoint.Antivirus-APT"
   ],
   "service": [
     "Common.Service"
   ],
+  "eventOutcome": [
+    "event.outcome"
+  ],
   "enforcement": [
-    "Common.Enforcement",
-    "Common.Enforcement-Profile"
+    "Common.Enforcement-Profiles"
   ],
   "nasIp": [
     "Common.NAS-IP-Address"
@@ -46,6 +46,9 @@
   ],
   "alerts": [
     "Common.Alerts"
+  ],
+  "status": [
+    "Common.Login-Status"
   ],
   "antivirusInput": [
     "Endpoint.Antivirus-Input",

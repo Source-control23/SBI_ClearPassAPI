@@ -20,9 +20,10 @@ namespace ClearPulse.Core.Entities
             public string? AuthMethod { get; set; }  // EAP-TLS, PEAP
             public int? ErrorCode { get; set; }
             public string? Reason { get; set; }
+            public string? EnforcementProfile { get; set; }
 
-            // Location
-            public string? BranchCode { get; set; }
+        // Location
+        public string? BranchCode { get; set; }
 
             // Quarantine Details
             public string? QuarantineReason { get; set; }

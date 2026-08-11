@@ -77,11 +77,11 @@ namespace ClearPulse.Infrastructure.Services
 
             // a) Total 802.1x machines
             var total802_1x = latestDevices.Count(d => d.AuthType == "802.1x" &&
-                                                        d.Username != null &&
-                                                        d.Username.StartsWith("host/"));
+                                            d.HealthStatus == "Healthy");
 
             // b) Total MAB machines
-            var totalMAB = latestDevices.Count(d => d.AuthType == "MAB");
+            var totalMAB = latestDevices.Count(d => d.AuthType == "MAB" &&
+                                         d.HealthStatus == "Healthy");
 
             // c) Total healthy machines
             var totalHealthy = latestDevices.Count(d => d.HealthStatus == "Healthy");

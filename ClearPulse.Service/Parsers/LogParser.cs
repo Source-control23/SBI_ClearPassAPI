@@ -24,9 +24,17 @@ namespace ClearPulse.Service.Parsers
         ["DatFileTimeCheck"] = "Not Updated",
         ["EngineVersionCheck"] = "Not Updated",
         ["ProductVersionCheck"] = "Not Updated",
-        ["AppNotInstalled"] = "Not Installed"
+        ["ApplicationNotInstalled"] = "Not Installed"
         };
 
+        private static readonly List<string> _avCheckOrder = new()
+        {
+        "LastScanTimeCheck",
+        "DatFileTimeCheck",
+        "EngineVersionCheck",
+        "ProductVersionCheck",
+        "ApplicationNotInstalled"
+        };
         public LogParser(string fieldMappingsPath = "Configuration/FieldMappings.json", ILogger<LogParser> logger = null)
         {
             var fullPath = Path.Combine(AppContext.BaseDirectory, fieldMappingsPath);
@@ -250,6 +258,13 @@ namespace ClearPulse.Service.Parsers
                 isolationState = "Isolated";
             }
 
+            else if (errorCode == 9002 || alertText.Contains("did not complete eap transaction"))
+            {
+                category = "AD_Issue";
+                reason = "Request Timeout";
+                isolationState = "Isolated";
+            }
+
             // User Not Found
             // Covers:
             // ErrorCode=206 (MAB)
@@ -304,106 +319,206 @@ namespace ClearPulse.Service.Parsers
             return (category, reason, isolationState);
         }
 
-        public (bool installed, bool updated, bool scanned, string product, string reason, string category) ParseAVStatus(string antivirusInput)
+        //public (bool installed, bool updated, bool scanned, string product, string reason, string category) ParseAVStatus(string antivirusInput)
+        //{
+        //    if (string.IsNullOrWhiteSpace(antivirusInput))
+        //    {
+        //        return (
+        //            false,
+        //            false,
+        //            false,
+        //            null,
+        //            null,
+        //            null
+        //        );
+        //    }
+
+        //    try
+        //    {
+        //        var avProducts = JsonConvert.DeserializeObject<Dictionary<string, AntivirusInfo>>(antivirusInput);
+
+        //        if (avProducts == null || avProducts.Count == 0)
+        //        {
+        //            return (
+        //                false,
+        //                false,
+        //                false,
+        //                null,
+        //                _avCheckMessages["ApplicationNotInstalled"],
+        //                "AV_Issue"
+        //            );
+        //        }
+
+        //        bool installed = true;
+        //        bool updated = true;
+        //        bool scanned = true;
+
+        //        string product = null;
+        //        var reasons = new HashSet<string>();
+
+        //        foreach (var av in avProducts)
+        //        {
+        //            _logger.LogInformation(@"Product={Product} LastScan={LastScan} DatTime={DatTime} Engine={Engine} Version={Version}", av.Key, av.Value.last_scan_time, av.Value.dat_file_time,
+        //             av.Value.engine_version, av.Value.version);
+        //            // Prefer Trend Micro if available, otherwise take the first product
+        //            if (product == null ||
+        //                av.Key.Contains("Trend Micro", StringComparison.OrdinalIgnoreCase))
+        //            {
+        //                product = av.Key;
+        //            }
+
+        //            AntivirusInfo info = av.Value;
+
+        //            // Last Scan Check
+        //            if (string.IsNullOrWhiteSpace(info.last_scan_time))
+        //            {
+        //                scanned = false;
+        //                reasons.Add(_avCheckMessages["LastScanTimeCheck"]);
+        //            }
+
+        //            // DAT File Check
+        //            if (string.IsNullOrWhiteSpace(info.dat_file_time))
+        //            {
+        //                updated = false;
+        //                reasons.Add(_avCheckMessages["DatFileTimeCheck"]);
+        //            }
+
+        //            // Engine Version Check
+        //            if (string.IsNullOrWhiteSpace(info.engine_version))
+        //            {
+        //                updated = false;
+        //                reasons.Add(_avCheckMessages["EngineVersionCheck"]);
+        //            }
+
+        //            // Product Version Check
+        //            if (string.IsNullOrWhiteSpace(info.version))
+        //            {
+        //                updated = false;
+        //                reasons.Add(_avCheckMessages["ProductVersionCheck"]);
+        //            }
+        //        }
+
+        //        string category = reasons.Any() ? "AV_Issue" : null;
+
+        //        return (
+        //            installed,
+        //            updated,
+        //            scanned,
+        //            product,
+        //            reasons.Any() ? string.Join(", ", reasons) : null,
+        //            category
+        //        );
+        //    }
+        //    catch (Exception)
+        //    {
+        //        return (
+        //            false,
+        //            false,
+        //            false,
+        //            null,
+        //            _avCheckMessages["ApplicationNotInstalled"],
+        //            "AV_Issue"
+        //        );
+        //    }
+        //}
+
+
+        public (bool installed, bool updated, bool scanned, string product, string reason, string category)ParseAVStatus(string antivirusOutputRaw)
         {
-            if (string.IsNullOrWhiteSpace(antivirusInput))
-            {
-                return (
-                    false,
-                    false,
-                    false,
-                    null,
-                    null,
-                    null
-                );
-            }
+            if (string.IsNullOrWhiteSpace(antivirusOutputRaw))
+                return (false, false, false, null, null, null);
 
             try
             {
-                var avProducts = JsonConvert.DeserializeObject<Dictionary<string, AntivirusInfo>>(antivirusInput);
-
-                if (avProducts == null || avProducts.Count == 0)
-                {
-                    return (
-                        false,
-                        false,
-                        false,
-                        null,
-                        _avCheckMessages["AppNotInstalled"],
-                        "AV_Issue"
-                    );
-                }
-
-                bool installed = true;
-                bool updated = true;
-                bool scanned = true;
+                var outputObj = JObject.Parse(antivirusOutputRaw);
 
                 string product = null;
-                var reasons = new HashSet<string>();
+                JObject failedChecksObj = null;
 
-                foreach (var av in avProducts)
+                foreach (var prop in outputObj.Properties())
                 {
-                    _logger.LogInformation(@"Product={Product} LastScan={LastScan} DatTime={DatTime} Engine={Engine} Version={Version}", av.Key, av.Value.last_scan_time, av.Value.dat_file_time,
-                     av.Value.engine_version, av.Value.version);
-                    // Prefer Trend Micro if available, otherwise take the first product
-                    if (product == null ||
-                        av.Key.Contains("Trend Micro", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(prop.Name, "apt", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (string.Equals(prop.Name, "failed_checks", StringComparison.OrdinalIgnoreCase))
                     {
-                        product = av.Key;
+                        failedChecksObj = prop.Value as JObject;   // ApplicationNotInstalled case: top-level
+                        continue;
                     }
 
-                    AntivirusInfo info = av.Value;
-
-                    // Last Scan Check
-                    if (string.IsNullOrWhiteSpace(info.last_scan_time))
+                    if (prop.Value is JObject productObj)
                     {
-                        scanned = false;
-                        reasons.Add(_avCheckMessages["LastScanTimeCheck"]);
-                    }
-
-                    // DAT File Check
-                    if (string.IsNullOrWhiteSpace(info.dat_file_time))
-                    {
-                        updated = false;
-                        reasons.Add(_avCheckMessages["DatFileTimeCheck"]);
-                    }
-
-                    // Engine Version Check
-                    if (string.IsNullOrWhiteSpace(info.engine_version))
-                    {
-                        updated = false;
-                        reasons.Add(_avCheckMessages["EngineVersionCheck"]);
-                    }
-
-                    // Product Version Check
-                    if (string.IsNullOrWhiteSpace(info.version))
-                    {
-                        updated = false;
-                        reasons.Add(_avCheckMessages["ProductVersionCheck"]);
+                        product = prop.Name;                        // e.g. "Trend Micro Apex One Security Agent"
+                        if (productObj["failed_checks"] is JObject nestedFailedChecks)
+                            failedChecksObj = nestedFailedChecks;    // normal installed-product case
                     }
                 }
 
-                string category = reasons.Any() ? "AV_Issue" : null;
+                if (failedChecksObj == null || !failedChecksObj.HasValues)
+                {
+                    bool hasProduct = product != null;
+                    return (hasProduct, hasProduct, hasProduct, product, null, null);
+                }
 
-                return (
-                    installed,
-                    updated,
-                    scanned,
-                    product,
-                    reasons.Any() ? string.Join(", ", reasons) : null,
-                    category
-                );
+                bool installed = true, updated = true, scanned = true;
+                var orderedReasons = new List<string>();
+                var seenMessages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                void AddReason(string checkKey)
+                {
+                    if (_avCheckMessages.TryGetValue(checkKey, out var message) && seenMessages.Add(message))
+                        orderedReasons.Add(message);
+                }
+
+                foreach (var checkKey in _avCheckOrder)
+                {
+                    if (!failedChecksObj.ContainsKey(checkKey))
+                        continue;
+
+                    AddReason(checkKey);
+
+                    switch (checkKey)
+                    {
+                        case "LastScanTimeCheck":
+                            scanned = false;
+                            break;
+                        case "DatFileTimeCheck":
+                        case "EngineVersionCheck":
+                        case "ProductVersionCheck":
+                            updated = false;
+                            break;
+                        case "ApplicationNotInstalled":
+                            installed = false;
+                            if (product == null)
+                            {
+                                var missingProductToken = failedChecksObj[checkKey];
+                                product = missingProductToken != null && missingProductToken.Type == JTokenType.String
+                                    ? missingProductToken.ToString()
+                                    : null;
+                            }
+                            break;
+                    }
+                }
+
+                foreach (var prop in failedChecksObj.Properties())
+                {
+                    if (!_avCheckOrder.Contains(prop.Name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        _logger?.LogWarning("Unmapped AV failed_check key: {Key}", prop.Name);
+                        if (seenMessages.Add(prop.Name))
+                            orderedReasons.Add(prop.Name);
+                    }
+                }
+
+                string reason = orderedReasons.Any() ? string.Join(", ", orderedReasons) : null;
+                string category = orderedReasons.Any() ? "AV_Issue" : null;
+
+                return (installed, updated, scanned, product, reason, category);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return (
-                    false,
-                    false,
-                    false,
-                    null,
-                    _avCheckMessages["AppNotInstalled"],
-                    "AV_Issue"
-                );
+                _logger?.LogWarning(ex, "Failed to parse antivirus output: {Raw}", antivirusOutputRaw);
+                return (false, false, false, null, _avCheckMessages["ApplicationNotInstalled"], "AV_Issue");
             }
         }
 
@@ -537,48 +652,58 @@ namespace ClearPulse.Service.Parsers
         //    return "Unknown";
         //}
 
-        public string DetermineHealthStatus(string postureToken, string antivirusApt, int? errorCode, string enforcement)
+        public string DetermineHealthStatus(string authType, string loginStatus, string postureToken, string enforcement, int? errorCode, string antivirusApt)
         {
-            // Authentication logs
-            if (!string.IsNullOrWhiteSpace(enforcement))
-            {
-                if (enforcement.Contains("Allow", StringComparison.OrdinalIgnoreCase))
-                    return "Healthy";
-
-                if (enforcement.Contains("Deny", StringComparison.OrdinalIgnoreCase))
-                    return "Unhealthy";
-            }
-
-            // Posture Token
-            string token = postureToken?.Trim().ToUpperInvariant();
-
-            if (!string.IsNullOrEmpty(token))
-            {
-                if (token == "HEALTHY")
-                    return "Healthy";
-
-                if (token == "QUARANTINE" || token == "UNKNOWN")
-                    return "Unhealthy";
-            }
-
-            // AV Logs
+            string login = loginStatus?.Trim().ToUpperInvariant();
+            string auth = authType?.Trim().ToUpperInvariant();
+            string posture = postureToken?.Trim().ToUpperInvariant();
             string apt = antivirusApt?.Trim().ToUpperInvariant();
 
+            // =====================================================
+            // AV posture logs — no Service/ErrorCode/LoginStatus/Enforcement at all,
+            // only ArubaClearpassEndpointAntivirusAPT + ...Output are present
+            // =====================================================
             if (!string.IsNullOrEmpty(apt))
             {
-                if (apt == "HEALTHY")
-                    return "Healthy";
-
-                if (apt == "QUARANTINE" || apt == "UNKNOWN")
-                    return "Unhealthy";
+                if (apt == "HEALTHY") return "Healthy";
+                if (apt == "QUARANTINE" || apt == "UNKNOWN" || apt == "UNHEALTHY") return "Unhealthy";
             }
 
-            // Authentication fallback
-            if (errorCode == 0)
-                return "Healthy";
+            // =====================================================
+            // Authentication logs (802.1x / MAB)
+            // =====================================================
+            if (!string.IsNullOrEmpty(login))
+            {
+                // Reject or Timeout -> always Unhealthy, regardless of posture/AuthType
+                if (login == "REJECT" || login == "TIMEOUT")
+                    return "Unhealthy";
 
-            if (errorCode.HasValue)
-                return "Unhealthy";
+                if (login == "ACCEPT")
+                {
+                    // MAB: Accept = Healthy. Enforcement text varies per MAC and isn't meaningful.
+                    if (auth == "MAB")
+                        return "Healthy";
+
+                    // 802.1x: needs BOTH Healthy posture AND Allow Access Profile
+                    // to count as fully authenticated.
+                    bool allowProfile = enforcement?.Contains("Allow", StringComparison.OrdinalIgnoreCase) ?? false;
+                    bool postureHealthy = posture == "HEALTHY";
+
+                    return (allowProfile && postureHealthy) ? "Healthy" : "Unhealthy";
+                }
+            }
+
+            // =====================================================
+            // Fallback — no Login-Status available at all
+            // =====================================================
+            if (!string.IsNullOrEmpty(posture))
+            {
+                if (posture == "HEALTHY") return "Healthy";
+                if (posture == "QUARANTINE" || posture == "UNKNOWN") return "Unhealthy";
+            }
+
+            if (errorCode == 0) return "Healthy";
+            if (errorCode.HasValue) return "Unhealthy";
 
             return "Unknown";
         }
@@ -595,6 +720,9 @@ namespace ClearPulse.Service.Parsers
 
         public string DetermineAuthType(string service)
         {
+            if (string.IsNullOrWhiteSpace(service))
+                return "N/A";
+
             if (service.Contains("MAC_Auth", StringComparison.OrdinalIgnoreCase))
                 return "MAB";
 
