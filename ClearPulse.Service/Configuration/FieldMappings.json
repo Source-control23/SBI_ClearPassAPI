@@ -16,7 +16,6 @@
   ],
   "ipAddress": [
     "Common.IP-Address",
-    "Endpoint.IP-Address",
     "destination.ip"
   ],
   "hostname": [
@@ -25,15 +24,10 @@
     "dvcHost"
   ],
   "healthstatus": [
-    "Common.System-Posture-Token",
-    "ArubaClearpassEndpointAntivirusAPT",
-    "Endpoint.Antivirus-APT"
+    "Common.System-Posture-Token"
   ],
   "service": [
     "Common.Service"
-  ],
-  "eventOutcome": [
-    "event.outcome"
   ],
   "enforcement": [
     "Common.Enforcement-Profiles"
@@ -50,8 +44,10 @@
   "status": [
     "Common.Login-Status"
   ],
+  "antivirusApt": [
+    "ArubaClearpassEndpointAntivirusAPT"
+  ],
   "antivirusInput": [
-    "Endpoint.Antivirus-Input",
     "ArubaClearpassEndpointAntivirusInput"
   ],
   "antivirusOutput": [

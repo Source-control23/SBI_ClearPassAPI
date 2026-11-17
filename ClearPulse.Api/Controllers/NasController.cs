@@ -23,7 +23,7 @@ namespace ClearPulse.Api.Controllers
         /// Shows total NAS and which ones are actively sending RADIUS requests
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAll([FromQuery] bool? activeOnly = null,[FromQuery] string circleCode = null,[FromQuery] string? search = null,[FromQuery] int pageNumber = 1,[FromQuery] int pageSize = 10, [FromQuery] string? timeFilter = "today")
+        public async Task<IActionResult> GetAll([FromQuery] bool? activeOnly = null,[FromQuery] string circleCode = null,[FromQuery] string? search = null,[FromQuery] int pageNumber = 1,[FromQuery] int pageSize = 10, [FromQuery] DateTime? startDate = null, [FromQuery] DateTime? endDate = null)
         {
             var tenantId = User.FindFirst("tenantId")?.Value;
             var userCircle = User.IsInRole("CircleHead")
@@ -32,20 +32,32 @@ namespace ClearPulse.Api.Controllers
 
             var q = _db.NasDevices.AsQueryable();
 
-            if (!string.IsNullOrWhiteSpace(timeFilter))
+            // Date range filter on LastSeen
+            if (startDate.HasValue || endDate.HasValue)
             {
+                if (startDate.HasValue)
+                {
+                    var from = startDate.Value.Date;
+
+                    q = q.Where(x => x.LastSeen >= from);
+                }
+
+                if (endDate.HasValue)
+                {
+                    var to = endDate.Value.Date.AddDays(1);
+
+                    q = q.Where(x => x.LastSeen < to);
+                }
+            }
+            else
+            {
+                // No date selected -> today's data
                 var today = DateTime.Today;
+                var tomorrow = today.AddDays(1);
 
-                if (timeFilter.Equals("today", StringComparison.OrdinalIgnoreCase))
-                {
-                    q = q.Where(x => x.LastSeen >= today);
-                }
-                else if (timeFilter.Equals("week", StringComparison.OrdinalIgnoreCase))
-                {
-                    var weekStart = today.AddDays(-6);
-
-                    q = q.Where(x => x.LastSeen >= weekStart);
-                }
+                q = q.Where(x =>
+                    x.LastSeen >= today &&
+                    x.LastSeen < tomorrow);
             }
 
             // Tenant filter

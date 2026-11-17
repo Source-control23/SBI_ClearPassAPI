@@ -5,11 +5,13 @@
     /// </summary>
     public class DashboardMetricsDto
     {
-        public DateTime LastUpdated { get; set; }
+        public DateTime? LastUpdated { get; set; }
         public string TenantId { get; set; }
 
         // a) 802.1x Machines
         public int Total802_1xMachines { get; set; }
+
+        public int TotalConnectedDevices { get; set; }
 
         // b) MAB Machines
         public int TotalMABMachines { get; set; }
@@ -62,8 +64,9 @@
     public class NASDeviceDto
     {
         public string NasIp { get; set; }
-        public string BranchCode { get; set; }
-        public string BranchName { get; set; }
+        public string SourceSystem { get; set; }
+        public string EventType { get; set; }
+        public string Circle { get; set; }
         public int RequestCount { get; set; }
         public DateTime LastSeen { get; set; }
         public bool IsActive { get; set; }
@@ -219,6 +222,7 @@
         public int Other { get; set; }
         public PagedResult<DeviceDetailsDto> Devices { get; set; }
         public List<string> AvailableReasons { get; set; }
+        public Dictionary<string, int> ReasonCounts { get; set; } = new();
 
     }
 

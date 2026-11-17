@@ -17,7 +17,7 @@ namespace ClearPulse.Core.Entities
         public string? EventType { get; set; }
 
         [MaxLength(20)]
-        public string? CircleCode { get; set; } = "GLOBAL";
+        public string? CircleCode { get; set; } = "Not Known";
 
         public DateTime EventTime { get; set; } = DateTime.UtcNow;
 

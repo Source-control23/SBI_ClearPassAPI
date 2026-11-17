@@ -388,7 +388,7 @@ namespace ClearPulse.Service.Data
                 row["ComplianceIssues"] = (object)device.ComplianceIssues ?? DBNull.Value;
                 row["SourceSystem"] = (object)device.SourceSystem ?? DBNull.Value;
                 row["EventType"] = (object)device.EventType ?? DBNull.Value;
-                row["CircleCode"] = (object)device.CircleCode ?? "GLOBAL";
+                row["CircleCode"] = (object)device.CircleCode ?? "Not Known";
                 row["EventTime"] = device.EventTime;
                 row["TenantId"] = (object)device.TenantId ?? DBNull.Value;
                 row["Status"] = (object)device.Status ?? DBNull.Value;
@@ -457,7 +457,7 @@ namespace ClearPulse.Service.Data
                 row["UpdatedDate"] = DateTime.UtcNow;
                 row["SourceSystem"] = (object)device.SourceSystem ?? DBNull.Value;
                 row["EventType"] = (object)device.EventType ?? DBNull.Value;
-                row["CircleCode"] = (object)device.CircleCode ?? "GLOBAL";
+                row["CircleCode"] = (object)device.CircleCode ?? "Not Known";
                 row["EventTime"] = device.EventTime;
                 row["TenantId"] = (object)device.TenantId ?? DBNull.Value;
                 row["Status"] = (object)device.Status ?? DBNull.Value;

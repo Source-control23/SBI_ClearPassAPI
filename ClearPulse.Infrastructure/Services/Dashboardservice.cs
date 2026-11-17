@@ -3,16 +3,18 @@ using ClearPulse.Core.DTOs;
 using ClearPulse.Core.Entities;
 using ClearPulse.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
+using System.Linq.Expressions;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
 namespace ClearPulse.Infrastructure.Services
 {
     public interface IDashboardService
     {
-        Task<DashboardMetricsDto> GetUnifiedDashboardAsync(string tenantId, string circleCode, string timeFilter);
+        Task<DashboardMetricsDto> GetUnifiedDashboardAsync(string tenantId, string circleCode, string timeFilter, DateTime? startDate = null, DateTime? endDate = null);
         Task<CircleMetricsDto> GetCircleMetricsAsync(string circleCode, string tenantId);
         Task<List<DeviceDetailsDto>> GetDeviceDetailsAsync(string tenantId, string circleCode,
-            string authType = null, string healthStatus = null, bool machinesOnly = false, int take = 500, string timeFilter = "today");
+            string authType = null, string healthStatus = null, bool machinesOnly = false, int take = 500, string timeFilter = "custom", DateTime? startDate = null, DateTime? endDate = null);
         //Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(string tenantId, string circleCode = null);
         Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(
                string tenantId,
@@ -22,10 +24,33 @@ namespace ClearPulse.Infrastructure.Services
                int otherPage = 1,
                int pageSize = 10,
                string search = null,
-               string avReason = null,
-               string adReason = null,
-               string otherReason = null,
-               string timeFilter = "today");
+               List<string> avReason = null,
+               List<string> adReason = null,
+               List<string> otherReason = null,
+               string timeFilter = "custom",
+               DateTime? startDate = null,
+               DateTime? endDate = null, bool unique = false);
+
+        Task<List<DeviceDetailsDto>> GetQuarantineDevicesForExport(
+     string tenantId,
+     string category,
+     string circleCode = null,
+     string search = null,
+     List<string> avReason = null,
+     List<string> adReason = null,
+     List<string> otherReason = null,
+     DateTime? startDate = null,
+     DateTime? endDate = null,
+     bool unique = false);
+
+        Task<List<NASDeviceDto>> GetNasDevicesForExport(
+     string? tenantId,
+     string? circleCode = null,
+     bool? activeOnly = null,       // null = All, true = Active, false = Inactive
+     string? search = null,
+     DateTime? startDate = null,
+     DateTime? endDate = null);
+
         Task<ComparativeMetricsDto> GetComparativeMetricsAsync(int days, string tenantId, string circleCode = null);
     }
 
@@ -42,10 +67,162 @@ namespace ClearPulse.Infrastructure.Services
         /// Gets unified dashboard with all metrics
         /// Supports both Corporate (all circles) and Circle Head (specific circle) views
         /// </summary>
-        public async Task<DashboardMetricsDto> GetUnifiedDashboardAsync(string tenantId, string circleCode, string timeFilter)
+        //public async Task<DashboardMetricsDto> GetUnifiedDashboardAsync(string tenantId, string circleCode, string timeFilter, DateTime? startDate = null, DateTime? endDate = null)
+        //{
+        //    // Base query for device auth events
+        //    var baseQuery = _db.DeviceAuthEvents.AsQueryable();
+
+        //    if (!string.IsNullOrEmpty(tenantId))
+        //        baseQuery = baseQuery.Where(d => d.TenantId == tenantId);
+
+        //    if (!string.IsNullOrEmpty(circleCode))
+        //        baseQuery = baseQuery.Where(d => d.CircleCode == circleCode);
+        //    // CUSTOM DATE FILTER - LAST 7 DAYS
+        //    if (!string.Equals(timeFilter, "custom", StringComparison.OrdinalIgnoreCase))
+        //    {
+        //        throw new ArgumentException(
+        //            "Only custom date filter is supported.");
+        //    }
+
+        //    if (!startDate.HasValue || !endDate.HasValue)
+        //    {
+        //        throw new ArgumentException(
+        //            "Start date and end date are required.");
+        //    }
+
+        //    var requestedStartDate = startDate.Value.Date;
+        //    var requestedEndDate = endDate.Value.Date;
+
+        //    if (requestedStartDate > requestedEndDate)
+        //    {
+        //        throw new ArgumentException(
+        //            "Start date cannot be greater than end date.");
+        //    }
+        //    var today = DateTime.Today;
+
+        //    // Today + previous 6 days = 7 calendar days
+        //    var minimumAllowedDate = today.AddDays(-6);
+
+        //    if (requestedStartDate < minimumAllowedDate)
+        //    {
+        //        throw new ArgumentException(
+        //            "Custom date range can only include the last 7 days.");
+        //    }
+
+        //    if (requestedEndDate > today)
+        //    {
+        //        throw new ArgumentException(
+        //            "End date cannot be in the future.");
+        //    }
+
+        //    var customStartDate = requestedStartDate;
+
+        //    // End date is inclusive
+        //    // Example:
+        //    // 17 Aug -> < 18 Aug
+        //    var customEndDateExclusive = requestedEndDate.AddDays(1);
+
+        //    baseQuery = baseQuery.Where(x =>
+        //        x.EventTime >= customStartDate &&
+        //        x.EventTime < customEndDateExclusive);
+
+        //    // Get latest event per device (by MAC address)
+        //    var latestDevices = await baseQuery
+        //        .AsNoTracking()
+        //        .GroupBy(d => d.MacAddress)
+        //        .Select(g => g.OrderByDescending(d => d.EventTime).FirstOrDefault())
+        //        .ToListAsync();
+
+        //    // a) Total 802.1x machines
+        //    var total802_1x = latestDevices.Count(d => d.AuthType == "802.1x" &&
+        //                                    d.HealthStatus == "Healthy");
+
+        //    // b) Total MAB machines
+        //    var totalMAB = latestDevices.Count(d => d.AuthType == "MAB" &&
+        //                                 d.HealthStatus == "Healthy");
+
+        //    // c) Total healthy machines
+        //    var totalHealthy = latestDevices.Count(d => d.HealthStatus == "Healthy");
+
+        //    // d) Total unhealthy machines
+        //    var totalUnhealthy = latestDevices.Count(d => d.HealthStatus == "Unhealthy");
+
+        //    // e) NAS metrics
+        //    var nasMetrics = await GetNASMetricsAsync(tenantId, circleCode , timeFilter, startDate, endDate);
+
+        //    // h) Cluster metrics
+        //    //var clusterMetrics = await GetClusterMetricsAsync(tenantId , timeFilter);
+
+        //    // i) AD integration metrics
+        //    //var adMetrics = await GetADIntegrationMetricsAsync(tenantId, circleCode , timeFilter);
+
+        //    // AD / AV 
+        //    var quarantine = await GetQuarantineDetailsAsync(tenantId,circleCode, 1,1,1, 10,null,null,null,null,timeFilter, startDate, endDate);
+
+        //    var devicesMetrics = await GetDeviceDetailsAsync(tenantId, circleCode, null, null, false, 500, timeFilter, startDate, endDate);
+
+        //    // f) Circle-wise breakdown
+        //    var circleBreakdown = await GetCircleBreakdownAsync(tenantId , timeFilter, startDate, endDate);
+
+        //    return new DashboardMetricsDto
+        //    {
+        //        LastUpdated = DateTime.UtcNow,
+        //        TenantId = tenantId,
+        //        Total802_1xMachines = total802_1x,
+        //        TotalMABMachines = totalMAB,
+        //        TotalHealthyMachines = totalHealthy,
+        //        TotalUnhealthyMachines = totalUnhealthy,
+        //        NASMetrics = nasMetrics,
+        //        //ClusterMetrics = clusterMetrics,
+        //        deviceDetails = devicesMetrics,
+        //        //ADMetrics = adMetrics,
+        //        CircleBreakdown = circleBreakdown,s
+        //        Quarantine = quarantine
+        //    };
+        //}
+
+        public async Task<DashboardMetricsDto> GetUnifiedDashboardAsync(
+    string tenantId,
+    string circleCode,
+    string timeFilter,
+    DateTime? startDate = null,
+    DateTime? endDate = null)
         {
-            // Base query for device auth events
-            var baseQuery = _db.DeviceAuthEvents.AsQueryable();
+            // Always use custom date filtering.
+            // If no date is selected from UI, default to today.
+            timeFilter = "custom";
+
+            var today = DateTime.Today;
+            var minimumAllowedDate = today.AddDays(-6);
+
+            // If dates are not supplied, use TODAY.
+            var requestedStartDate = startDate?.Date ?? today;
+            var requestedEndDate = endDate?.Date ?? today;
+
+            // Validate date range
+            if (requestedStartDate > requestedEndDate)
+            {
+                throw new ArgumentException(
+                    "Start date cannot be greater than end date.");
+            }
+
+            if (requestedStartDate < minimumAllowedDate)
+            {
+                throw new ArgumentException(
+                    "Custom date range can only include the last 7 days.");
+            }
+
+            if (requestedEndDate > today)
+            {
+                throw new ArgumentException(
+                    "End date cannot be in the future.");
+            }
+
+            // End date is inclusive
+            var customEndDateExclusive = requestedEndDate.AddDays(1);
+
+            var baseQuery = _db.DeviceAuthEvents
+                .AsNoTracking();
 
             if (!string.IsNullOrEmpty(tenantId))
                 baseQuery = baseQuery.Where(d => d.TenantId == tenantId);
@@ -53,71 +230,135 @@ namespace ClearPulse.Infrastructure.Services
             if (!string.IsNullOrEmpty(circleCode))
                 baseQuery = baseQuery.Where(d => d.CircleCode == circleCode);
 
-            if (!string.IsNullOrEmpty(timeFilter))
-            {
-                var today = DateTime.Today;
+            // Apply SAME date range
+            baseQuery = baseQuery.Where(x =>
+                x.EventTime >= requestedStartDate &&
+                x.EventTime < customEndDateExclusive);
 
-                switch (timeFilter.ToLower())
-                {
-                    case "today":
-                        baseQuery = baseQuery.Where(x => x.EventTime >= today);
-                        break;
+            // ------------------------------------
+            // SUCCESSFUL AUTHENTICATION DEVICES
+            // ------------------------------------
 
-                    case "week":
-                        baseQuery = baseQuery.Where(x => x.EventTime >= today.AddDays(-7));
-                        break;
-                }
-            }
-            // Get latest event per device (by MAC address)
-            var latestDevices = await baseQuery
-                .AsNoTracking()
-                .GroupBy(d => d.MacAddress)
-                .Select(g => g.OrderByDescending(d => d.EventTime).FirstOrDefault())
-                .ToListAsync();
+            var successfulAuthQuery = baseQuery
+                .Where(d => d.Status == "ACCEPT");
+            var sw = Stopwatch.StartNew();
 
-            // a) Total 802.1x machines
-            var total802_1x = latestDevices.Count(d => d.AuthType == "802.1x" &&
-                                            d.HealthStatus == "Healthy");
+            Console.WriteLine($"Connected devices: {sw.ElapsedMilliseconds} ms");
 
-            // b) Total MAB machines
-            var totalMAB = latestDevices.Count(d => d.AuthType == "MAB" &&
-                                         d.HealthStatus == "Healthy");
+            sw.Restart();
 
-            // c) Total healthy machines
-            var totalHealthy = latestDevices.Count(d => d.HealthStatus == "Healthy");
+            // ------------------------------------
+            // LAST SUCCESSFUL AUTHENTICATION
+            // ------------------------------------
 
-            // d) Total unhealthy machines
-            var totalUnhealthy = latestDevices.Count(d => d.HealthStatus == "Unhealthy");
+            var lastUpdated = await successfulAuthQuery
+                .MaxAsync(d => (DateTime?)d.EventTime);
+            Console.WriteLine($"Last updated: {sw.ElapsedMilliseconds} ms");
 
-            // e) NAS metrics
-            var nasMetrics = await GetNASMetricsAsync(tenantId, circleCode , timeFilter);
+            sw.Restart();
 
-            // h) Cluster metrics
-            //var clusterMetrics = await GetClusterMetricsAsync(tenantId , timeFilter);
+            //var latestDevices = await baseQuery
+            //    .GroupBy(d => d.MacAddress)
+            //    .Select(g =>
+            //        g.OrderByDescending(d => d.EventTime)
+            //         .FirstOrDefault())
+            //    .ToListAsync();
 
-            // i) AD integration metrics
-            //var adMetrics = await GetADIntegrationMetricsAsync(tenantId, circleCode , timeFilter);
+            var latestDevices = await baseQuery.Where(d => !string.IsNullOrEmpty(d.MacAddress)).GroupBy(d => d.MacAddress)
+    .Select(g => g.OrderByDescending(d => d.EventTime).Select(d => new
+    {
+        d.Id,
+        d.MacAddress,
+        d.EventTime,
+        d.AuthType,
+        d.HealthStatus,
+        d.Status
+    }).FirstOrDefault()).ToListAsync();
 
-            // AD / AV 
-            var quarantine = await GetQuarantineDetailsAsync(tenantId,circleCode, 1,1,1, 10,null,null,null,null,timeFilter);
+            // Connected = latest event for the device is ACCEPT and Healthy
+            var totalConnectedDevices = latestDevices.Count(d =>
+                d.Status == "ACCEPT" &&
+                d.HealthStatus == "Healthy");
 
-            var devicesMetrics = await GetDeviceDetailsAsync(tenantId, circleCode, null, null, false, 500, timeFilter);
+            var total802_1x = latestDevices.Count(d =>
+                d.AuthType == "802.1x" &&
+                d.HealthStatus == "Healthy");
 
-            // f) Circle-wise breakdown
-            var circleBreakdown = await GetCircleBreakdownAsync(tenantId , timeFilter);
+            var totalMAB = latestDevices.Count(d =>
+                d.AuthType == "MAB" &&
+                d.HealthStatus == "Healthy");
+
+            var totalHealthy = latestDevices.Count(d =>
+                d.HealthStatus == "Healthy");
+
+            var totalUnhealthy = latestDevices.Count(d =>
+                d.HealthStatus == "Unhealthy");
+
+            Console.WriteLine($"latestDevices: {sw.ElapsedMilliseconds} ms");
+
+            sw.Restart();
+
+            var nasMetrics = await GetNASMetricsAsync(
+                tenantId,
+                circleCode,
+                "custom",
+                requestedStartDate,
+                requestedEndDate);
+
+            Console.WriteLine($"NAS: {sw.ElapsedMilliseconds} ms");
+
+            sw.Restart();
+
+            var quarantine = await GetQuarantineDetailsAsync(
+                tenantId,
+                circleCode,
+                1,
+                1,
+                1,
+                10,
+                null,
+                null,
+                null,
+                null,
+                "custom",
+                requestedStartDate,
+                requestedEndDate ,true);
+            Console.WriteLine($"Quarantine: {sw.ElapsedMilliseconds} ms");
+
+            sw.Restart();
+
+            var devicesMetrics = await GetDeviceDetailsAsync(
+                tenantId,
+                circleCode,
+                null,
+                null,
+                false,
+                500,
+                "custom",
+                requestedStartDate,
+                requestedEndDate);
+            Console.WriteLine($"Devices: {sw.ElapsedMilliseconds} ms");
+
+            sw.Restart();
+
+            var circleBreakdown = await GetCircleBreakdownAsync(
+                tenantId,
+                "custom",
+                requestedStartDate,
+                requestedEndDate);
+            Console.WriteLine($"Circle: {sw.ElapsedMilliseconds} ms");
 
             return new DashboardMetricsDto
             {
-                LastUpdated = DateTime.UtcNow,
-                TenantId = tenantId,
+                LastUpdated = lastUpdated,
+                TenantId = tenantId,    
+                TotalConnectedDevices = totalConnectedDevices,
                 Total802_1xMachines = total802_1x,
                 TotalMABMachines = totalMAB,
                 TotalHealthyMachines = totalHealthy,
                 TotalUnhealthyMachines = totalUnhealthy,
                 NASMetrics = nasMetrics,
-                //ClusterMetrics = clusterMetrics,
                 deviceDetails = devicesMetrics,
-                //ADMetrics = adMetrics,
                 CircleBreakdown = circleBreakdown,
                 Quarantine = quarantine
             };
@@ -170,7 +411,9 @@ namespace ClearPulse.Infrastructure.Services
             string healthStatus = null,
             bool machinesOnly = false,
             int take = 500,
-             string timeFilter = "today")
+             string timeFilter = "custom",
+             DateTime? startDate = null,
+             DateTime? endDate = null)
         {
             if (take <= 0) take = 100;
             if (take > 2000) take = 2000;
@@ -184,19 +427,44 @@ namespace ClearPulse.Infrastructure.Services
             if (!string.IsNullOrEmpty(circleCode))
                 query = query.Where(d => d.CircleCode == circleCode);
 
-            if (!string.IsNullOrEmpty(timeFilter))
+            // Date filter
+            if (!string.Equals(timeFilter, "custom",
+                StringComparison.OrdinalIgnoreCase))
             {
-                switch (timeFilter.ToLower())
-                {
-                    case "today":
-                        query = query.Where(d => d.LastSeenOnline >= DateTime.Today);
-                        break;
-
-                    case "week":
-                        query = query.Where(d => d.LastSeenOnline >= DateTime.Today.AddDays(-7));
-                        break;
-                }
+                timeFilter = "custom";
             }
+
+            // If no date is selected, use today
+            var today = DateTime.Today;
+
+            var customStartDate = startDate?.Date ?? today;
+            var customEndDate = endDate?.Date ?? today;
+
+            var minimumAllowedDate = today.AddDays(-6);
+
+            if (customStartDate > customEndDate)
+            {
+                throw new ArgumentException(
+                    "Start date cannot be greater than end date.");
+            }
+
+            if (customStartDate < minimumAllowedDate)
+            {
+                throw new ArgumentException(
+                    "Date range can only include the last 7 days.");
+            }
+
+            if (customEndDate > today)
+            {
+                throw new ArgumentException(
+                    "End date cannot be in the future.");
+            }
+
+            var exclusiveEndDate = customEndDate.AddDays(1);
+
+            query = query.Where(d =>
+                d.LastSeenOnline >= customStartDate &&
+                d.LastSeenOnline < exclusiveEndDate);
 
             // Get matching devices from inventory
             var devices = await query
@@ -221,10 +489,17 @@ namespace ClearPulse.Infrastructure.Services
 
             // Enrich with latest auth event data
             var macAddresses = devices.Select(d => d.MacAddress).ToList();
-            var latestAuthEvents = await _db.DeviceAuthEvents
-                .Where(e => macAddresses.Contains(e.MacAddress))
+            var authEventQuery = _db.DeviceAuthEvents
+     .Where(e => macAddresses.Contains(e.MacAddress));
+
+            authEventQuery = authEventQuery.Where(e =>
+                e.EventTime >= customStartDate &&
+                e.EventTime < exclusiveEndDate);
+
+            var latestAuthEvents = await authEventQuery
                 .GroupBy(e => e.MacAddress)
-                .Select(g => g.OrderByDescending(e => e.EventTime).FirstOrDefault())
+                .Select(g =>
+                    g.OrderByDescending(e => e.EventTime).FirstOrDefault())
                 .ToListAsync();
 
             foreach (var device in devices)
@@ -321,298 +596,226 @@ namespace ClearPulse.Infrastructure.Services
         //    };
         //}
 
-        //    public async Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(
-        //string tenantId,
-        //string circleCode = null,
-        //int avPage = 1,
-        //int adPage = 1,
-        //int otherPage = 1,
-        //int pageSize = 10,
-        //string search = null,
-        //string avReason = null,
-        //string adReason = null,
-        //string otherReason = null,
-        //string timeFilter = "today")
-        //    {
-        //        // ── 1. Base filter ────────────────────────────────────────────────────
-        //        var baseQuery = _db.DeviceAuthEvents
-        //            .AsNoTracking()
-        //            .Where(d => d.Status == "Quarantine" || d.IsolationState == "Isolated");
-
-        //        if (!string.IsNullOrEmpty(tenantId))
-        //            baseQuery = baseQuery.Where(d => d.TenantId == tenantId);
-        //        if (!string.IsNullOrEmpty(circleCode))
-        //            baseQuery = baseQuery.Where(d => d.CircleCode == circleCode);
-
-        //        if (!string.IsNullOrEmpty(timeFilter))
-        //        {
-        //            switch (timeFilter.ToLower())
-        //            {
-        //                case "today":
-        //                    baseQuery = baseQuery.Where(a => a.EventTime >= DateTime.Today);
-        //                    break;
-
-        //                case "week":
-        //                    baseQuery = baseQuery.Where(a => a.EventTime >= DateTime.Today.AddDays(-7));
-        //                    break;
-        //            }
-        //        }
-
-        //        // ── 2. Latest per device ──────────────────────────────────────────────
-        //        var latestTimes = baseQuery
-        //            .GroupBy(d => d.MacAddress)
-        //            .Select(g => new { MacAddress = g.Key, MaxEventTime = g.Max(d => d.EventTime) });
-
-        //        var latestDevices =
-        //            from d in baseQuery
-        //            join lt in latestTimes
-        //                on new { d.MacAddress, d.EventTime }
-        //                equals new { lt.MacAddress, EventTime = lt.MaxEventTime }
-        //            select d;
-
-        //        // ── 3. Category split ─────────────────────────────────────────────────
-        //        var avQuery = latestDevices.Where(d => d.QuarantineCategory == "AV_Issue");
-        //        var adQuery = latestDevices.Where(d => d.QuarantineCategory == "AD_Issue");
-        //        var otherQuery = latestDevices.Where(d =>
-        //            d.QuarantineCategory == "Other" ||
-        //            d.QuarantineCategory == null ||
-        //            d.QuarantineCategory == "");
-
-        //        // ── 4. Apply search to all categories ────────────────────────────────
-        //        if (!string.IsNullOrEmpty(search))
-        //        {
-        //            search = search.Trim();
-        //            avQuery = avQuery.Where(d => d.MacAddress.Contains(search) || d.Hostname.Contains(search) || d.BranchCode.Contains(search) || d.CircleCode.Contains(search));
-        //            adQuery = adQuery.Where(d => d.MacAddress.Contains(search) || d.Hostname.Contains(search) || d.BranchCode.Contains(search) || d.CircleCode.Contains(search));
-        //            otherQuery = otherQuery.Where(d => d.MacAddress.Contains(search) || d.Hostname.Contains(search) || d.BranchCode.Contains(search) || d.CircleCode.Contains(search));
-        //        }
-
-        //        // ── 5. Apply per-tab reason filter ────────────────────────────────────
-        //        if (!string.IsNullOrEmpty(avReason))
-        //            avQuery = avQuery.Where(d => d.QuarantineReason == avReason);
-        //        if (!string.IsNullOrEmpty(adReason))
-        //            adQuery = adQuery.Where(d => d.QuarantineReason == adReason);
-        //        if (!string.IsNullOrEmpty(otherReason))
-        //            otherQuery = otherQuery.Where(d => d.QuarantineReason == otherReason);
-
-        //        // ── 6. Summary metrics ────────────────────────────────────────────────
-        //        var avNotInstalled = await avQuery.CountAsync(d => !d.AVInstalled);
-        //        var avNotUpdated = await avQuery.CountAsync(d => d.AVInstalled && !d.AVUpdated);
-        //        var avNotScanned = await avQuery.CountAsync(d => d.AVInstalled && !d.AVScanned);
-
-        //        var adDisabled = await adQuery.CountAsync(d => d.ADAccountDisabled);
-        //        var adNotFound = await adQuery.CountAsync(d => !d.ADUserFound);
-        //        var adCertInvalid = await adQuery.CountAsync(d => d.QuarantineReason != null && d.QuarantineReason.Contains("certificate"));
-
-        //        var otherAuthFail = await otherQuery.CountAsync(d => d.QuarantineReason != null && d.QuarantineReason.Contains("Authentication Failed"));
-        //        var otherMisc = await otherQuery.CountAsync(d => d.QuarantineReason == null || !d.QuarantineReason.Contains("Authentication Failed"));
-
-        //        // ── 7. Paginate all 3 tabs ────────────────────────────────────────────
-        //        var avTotal = await avQuery.CountAsync();
-        //        var adTotal = await adQuery.CountAsync();
-        //        var otherTotal = await otherQuery.CountAsync();
-        //        Console.WriteLine($"AD Total = {adTotal}");
-        //        var avDevices = await GetPagedDevicesAsync(avQuery, avPage, pageSize);
-        //        var adDevices = await GetPagedDevicesAsync(adQuery, adPage, pageSize);
-        //        var otherDevices = await GetPagedDevicesAsync(otherQuery, otherPage, pageSize);
-        //        Console.WriteLine($"Returned = {adDevices.Count}");
-        //        // ── 8. Available reasons per tab ──────────────────────────────────────
-        //        var avReasons = await GetAvailableReasonsAsync(avQuery);
-        //        var adReasons = await GetAvailableReasonsAsync(adQuery);
-        //        var otherReasons = await GetAvailableReasonsAsync(otherQuery);
-
-        //        // ── 9. Assemble ───────────────────────────────────────────────────────
-        //        return new QuarantineDetailsDto
-        //        {
-        //            AVIssues = new AVQuarantineMetrics
-        //            {
-        //                NotInstalled = avNotInstalled,
-        //                NotUpdated = avNotUpdated,
-        //                NotScanned = avNotScanned,
-        //                Devices = new PagedResult<DeviceDetailsDto>
-        //                {
-        //                    Items = avDevices,
-        //                    TotalCount = avTotal,
-        //                    Page = avPage,
-        //                    PageSize = pageSize,
-        //                    TotalPages = (int)Math.Ceiling((double)avTotal / pageSize)
-        //                },
-        //                AvailableReasons = avReasons
-        //            },
-        //            ADIssues = new ADQuarantineMetrics
-        //            {
-        //                AccountDisabled = adDisabled,
-        //                UserNotFound = adNotFound,
-        //                CertificateInvalid = adCertInvalid,
-        //                Devices = new PagedResult<DeviceDetailsDto>
-        //                {
-        //                    Items = adDevices,
-        //                    TotalCount = adTotal,
-        //                    Page = adPage,
-        //                    PageSize = pageSize,
-        //                    TotalPages = (int)Math.Ceiling((double)adTotal / pageSize)
-        //                },
-        //                AvailableReasons = adReasons
-        //            },
-        //            OtherIssues = new OtherQuarantineMetrics
-        //            {
-        //                AuthenticationFailed = otherAuthFail,
-        //                Other = otherMisc,
-        //                Devices = new PagedResult<DeviceDetailsDto>
-        //                {
-        //                    Items = otherDevices,
-        //                    TotalCount = otherTotal,
-        //                    Page = otherPage,
-        //                    PageSize = pageSize,
-        //                    TotalPages = (int)Math.Ceiling((double)otherTotal / pageSize)
-        //                },
-        //                AvailableReasons = otherReasons
-        //            }
-        //        };
-        //    }
-
         public async Task<QuarantineDetailsDto> GetQuarantineDetailsAsync(
-    string tenantId,
-    string circleCode = null,
-    int avPage = 1,
-    int adPage = 1,
-    int otherPage = 1,
-    int pageSize = 10,
-    string search = null,
-    string avReason = null,
-    string adReason = null,
-    string otherReason = null,
-    string timeFilter = "today")
+     string tenantId,
+     string circleCode = null,
+     int avPage = 1,
+     int adPage = 1,
+     int otherPage = 1,
+     int pageSize = 10,
+     string search = null,
+     List<string> avReason = null,
+     List<string> adReason = null,
+     List<string> otherReason = null,
+     string timeFilter = "custom",
+     DateTime? startDate = null,
+     DateTime? endDate = null,
+     bool unique = false)
         {
-            var query = _db.DeviceAuthEvents
+            IQueryable<DeviceAuthEvent> baseQuery = _db.DeviceAuthEvents
                 .AsNoTracking()
-                .Where(d => d.Status == "Quarantine" || d.IsolationState == "Isolated");
+                .Where(d =>
+                    (d.Status == "UNHEALTHY" && d.QuarantineCategory == "AV_Issue") ||
+                    ((d.Status == "REJECT" || d.Status == "TIMEOUT") && d.QuarantineCategory == "AD_Issue") ||
+                    d.QuarantineCategory == "Other");
 
             if (!string.IsNullOrEmpty(tenantId))
-                query = query.Where(d => d.TenantId == tenantId);
+                baseQuery = baseQuery.Where(d => d.TenantId == tenantId);
 
             if (!string.IsNullOrEmpty(circleCode))
-                query = query.Where(d => d.CircleCode == circleCode);
+                baseQuery = baseQuery.Where(d => d.CircleCode == circleCode);
 
-            switch (timeFilter?.ToLower())
+            // Same date handling as GetUnifiedDashboardAsync
+            var today = DateTime.Today;
+            var minimumAllowedDate = today.AddDays(-6);
+
+            var requestedStartDate = startDate?.Date ?? today;
+            var requestedEndDate = endDate?.Date ?? today;
+
+            if (requestedStartDate > requestedEndDate)
+                throw new ArgumentException("Start date cannot be greater than end date.");
+
+            if (requestedStartDate < minimumAllowedDate)
+                throw new ArgumentException("Custom date range can only include the last 7 days.");
+
+            if (requestedEndDate > today)
+                throw new ArgumentException("End date cannot be in the future.");
+
+            var requestedEndDateExclusive = requestedEndDate.AddDays(1);
+
+            baseQuery = baseQuery.Where(d =>
+                d.EventTime >= requestedStartDate &&
+                d.EventTime < requestedEndDateExclusive);
+
+            // --- Dedup (unique) still happens once, across ALL categories, exactly like before ---
+            // Difference: this stays an IQueryable (translated to SQL), it is not materialized here.
+            IQueryable<DeviceAuthEvent> workingQuery;
+
+            if (unique)
             {
-                case "today":
-                    query = query.Where(d => d.EventTime >= DateTime.Today);
-                    break;
+                var withMac = baseQuery.Where(x => x.MacAddress != null && x.MacAddress != "");
+                var withoutMac = baseQuery.Where(x => x.MacAddress == null || x.MacAddress == "");
 
-                case "week":
-                    query = query.Where(d => d.EventTime >= DateTime.Today.AddDays(-7));
-                    break;
+                var latestPerMac = withMac
+                    .GroupBy(x => x.MacAddress)
+                    .Select(g => new { MacAddress = g.Key, MaxEventTime = g.Max(x => x.EventTime) });
+
+                var dedupedWithMac = withMac
+                    .Join(
+                        latestPerMac,
+                        x => new { x.MacAddress, x.EventTime },
+                        l => new { l.MacAddress, EventTime = l.MaxEventTime },
+                        (x, l) => x);
+
+                // Rows without a MAC address have nothing to dedupe against — keep them as-is
+                workingQuery = dedupedWithMac.Concat(withoutMac);
+            }
+            else
+            {
+                workingQuery = baseQuery;
             }
 
-            // Latest event per MAC
-            var latestDevices = await query
-                .GroupBy(d => d.MacAddress)
-                .Select(g => g.OrderByDescending(x => x.EventTime).First())
-                .ToListAsync();
+            // --- Split into three category queries (still IQueryable, no data pulled yet) ---
+            IQueryable<DeviceAuthEvent> avQ = workingQuery
+                .Where(d => d.Status == "UNHEALTHY" && d.QuarantineCategory == "AV_Issue");
 
-            IEnumerable<DeviceAuthEvent> avDevices = latestDevices
-                .Where(d => d.QuarantineCategory == "AV_Issue");
+            IQueryable<DeviceAuthEvent> adQ = workingQuery
+                .Where(d => (d.Status == "REJECT" || d.Status == "TIMEOUT") && d.QuarantineCategory == "AD_Issue");
 
-            IEnumerable<DeviceAuthEvent> adDevices = latestDevices
-                .Where(d => d.QuarantineCategory == "AD_Issue");
+            IQueryable<DeviceAuthEvent> otherQ = workingQuery
+                .Where(d => d.QuarantineCategory == "Other");
 
-            IEnumerable<DeviceAuthEvent> otherDevices = latestDevices
-                .Where(d =>
-                    d.QuarantineCategory == "Other" ||
-                    string.IsNullOrEmpty(d.QuarantineCategory));
-
-            // Search
+            // --- Search filter, applied in SQL instead of in-memory ---
             if (!string.IsNullOrWhiteSpace(search))
             {
-                search = search.Trim().ToLower();
+                var s = search.Trim().ToLower();
 
-                Func<DeviceAuthEvent, bool> filter = d =>
-                    (!string.IsNullOrEmpty(d.MacAddress) && d.MacAddress.ToLower().Contains(search)) ||
-                    (!string.IsNullOrEmpty(d.Hostname) && d.Hostname.ToLower().Contains(search)) ||
-                    (!string.IsNullOrEmpty(d.BranchCode) && d.BranchCode.ToLower().Contains(search)) ||
-                    (!string.IsNullOrEmpty(d.CircleCode) && d.CircleCode.ToLower().Contains(search));
+                Expression<Func<DeviceAuthEvent, bool>> filter = d =>
+                    (d.MacAddress != null && d.MacAddress.ToLower().Contains(s)) ||
+                    (d.Hostname != null && d.Hostname.ToLower().Contains(s)) ||
+                    (d.BranchCode != null && d.BranchCode.ToLower().Contains(s)) ||
+                    (d.CircleCode != null && d.CircleCode.ToLower().Contains(s));
 
-                avDevices = avDevices.Where(filter);
-                adDevices = adDevices.Where(filter);
-                otherDevices = otherDevices.Where(filter);
+                avQ = avQ.Where(filter);
+                adQ = adQ.Where(filter);
+                otherQ = otherQ.Where(filter);
             }
 
-            // Reason filter
-            if (!string.IsNullOrWhiteSpace(avReason))
-                avDevices = avDevices.Where(x => x.QuarantineReason == avReason);
+            // --- Reason filter, applied in SQL as an IN clause ---
+            if (avReason != null && avReason.Count > 0)
+                avQ = avQ.Where(x => avReason.Contains(x.QuarantineReason));
 
-            if (!string.IsNullOrWhiteSpace(adReason))
-                adDevices = adDevices.Where(x => x.QuarantineReason == adReason);
+            if (adReason != null && adReason.Count > 0)
+                adQ = adQ.Where(x => adReason.Contains(x.QuarantineReason));
 
-            if (!string.IsNullOrWhiteSpace(otherReason))
-                otherDevices = otherDevices.Where(x => x.QuarantineReason == otherReason);
+            if (otherReason != null && otherReason.Count > 0)
+                otherQ = otherQ.Where(x => otherReason.Contains(x.QuarantineReason));
 
-            // Totals
-            int avTotal = avDevices.Count();
-            int adTotal = adDevices.Count();
-            int otherTotal = otherDevices.Count();
+            // --- Totals: SQL COUNT(), not client-side Count() over materialized lists ---
+            int avTotal = await avQ.CountAsync();
+            int adTotal = await adQ.CountAsync();
+            int otherTotal = await otherQ.CountAsync();
 
-            // Metrics
-            int avNotInstalled = avDevices.Count(x => !x.AVInstalled);
-            int avNotUpdated = avDevices.Count(x => x.AVInstalled && !x.AVUpdated);
-            int avNotScanned = avDevices.Count(x => x.AVInstalled && !x.AVScanned);
+            // --- Metrics: also SQL COUNT() with predicates ---
+            int avNotInstalled = await avQ.CountAsync(x => !x.AVInstalled);
+            int avNotUpdated = await avQ.CountAsync(x => x.AVInstalled && !x.AVUpdated);
+            int avNotScanned = await avQ.CountAsync(x => x.AVInstalled && !x.AVScanned);
 
-            int adDisabled = adDevices.Count(x => x.ADAccountDisabled);
-            int adNotFound = adDevices.Count(x => !x.ADUserFound);
-            int adCertInvalid = adDevices.Count(x =>
-                !string.IsNullOrEmpty(x.QuarantineReason) &&
-                x.QuarantineReason.Contains("certificate", StringComparison.OrdinalIgnoreCase));
+            int adDisabled = await adQ.CountAsync(x => x.ADAccountDisabled);
+            int adNotFound = await adQ.CountAsync(x => !x.ADUserFound);
+            int adCertInvalid = await adQ.CountAsync(x =>
+                x.QuarantineReason != null &&
+                x.QuarantineReason.Contains("certificate"));
 
-            int otherAuthFail = otherDevices.Count(x =>
-                !string.IsNullOrEmpty(x.QuarantineReason) &&
-                x.QuarantineReason.Contains("Authentication Failed", StringComparison.OrdinalIgnoreCase));
+            int otherAuthFail = await otherQ.CountAsync(x =>
+                x.QuarantineReason != null &&
+                x.QuarantineReason.Contains("Authentication Failed"));
 
-            int otherMisc = otherDevices.Count() - otherAuthFail;
+            int otherMisc = otherTotal - otherAuthFail;
 
-            // Pagination
-            var avPaged = avDevices
+            // --- IP lookup: only need distinct MACs from the (already filtered) AV query,
+            //     which is a superset-safe subset of what the original code looked up ---
+            var avMacAddresses = await avQ
+                .Where(x => !string.IsNullOrEmpty(x.MacAddress))
+                .Select(x => x.MacAddress)
+                .Distinct()
+                .ToListAsync();
+
+            var inventoryDevices = await _db.DeviceInventory
+                .AsNoTracking()
+                .Where(x => avMacAddresses.Contains(x.MacAddress))
+                .Select(x => new { x.MacAddress, x.IpAddress })
+                .ToListAsync();
+
+            var ipLookup = inventoryDevices
+                .GroupBy(x => x.MacAddress)
+                .ToDictionary(g => g.Key, g => g.First().IpAddress);
+
+            // --- Pagination: SQL OFFSET/FETCH via Skip/Take, only pageSize rows come back ---
+            var avPagedEntities = await avQ
                 .OrderByDescending(x => x.EventTime)
                 .Skip((avPage - 1) * pageSize)
                 .Take(pageSize)
-                .Select(MapToDeviceDetails)
+                .ToListAsync();
+
+            var avPaged = avPagedEntities
+                .Select(x =>
+                {
+                    var dto = MapToDeviceDetails(x);
+
+                    if (!string.IsNullOrEmpty(x.MacAddress) &&
+                        ipLookup.TryGetValue(x.MacAddress, out var ip))
+                    {
+                        dto.IpAddress = ip;
+                    }
+
+                    return dto;
+                })
                 .ToList();
 
-            var adPaged = adDevices
+            var adPagedEntities = await adQ
                 .OrderByDescending(x => x.EventTime)
                 .Skip((adPage - 1) * pageSize)
                 .Take(pageSize)
-                .Select(MapToDeviceDetails)
-                .ToList();
+                .ToListAsync();
 
-            var otherPaged = otherDevices
+            var adPaged = adPagedEntities.Select(MapToDeviceDetails).ToList();
+
+            var otherPagedEntities = await otherQ
                 .OrderByDescending(x => x.EventTime)
                 .Skip((otherPage - 1) * pageSize)
                 .Take(pageSize)
-                .Select(MapToDeviceDetails)
-                .ToList();
+                .ToListAsync();
 
-            // Reasons
-            var avReasons = avDevices
-                .Where(x => !string.IsNullOrEmpty(x.QuarantineReason))
+            var otherPaged = otherPagedEntities.Select(MapToDeviceDetails).ToList();
+
+            // --- Available reasons: SQL DISTINCT/ORDER BY instead of in-memory ---
+            var avReasons = await avQ
+                .Where(x => x.QuarantineReason != null && x.QuarantineReason != "")
                 .Select(x => x.QuarantineReason)
                 .Distinct()
                 .OrderBy(x => x)
-                .ToList();
+                .ToListAsync();
 
-            var adReasons = adDevices
-                .Where(x => !string.IsNullOrEmpty(x.QuarantineReason))
+            var adReasons = await adQ
+                .Where(x => x.QuarantineReason != null && x.QuarantineReason != "")
                 .Select(x => x.QuarantineReason)
                 .Distinct()
                 .OrderBy(x => x)
-                .ToList();
+                .ToListAsync();
 
-            var otherReasons = otherDevices
-                .Where(x => !string.IsNullOrEmpty(x.QuarantineReason))
+            var otherReasons = await otherQ
+                .Where(x => x.QuarantineReason != null && x.QuarantineReason != "")
                 .Select(x => x.QuarantineReason)
                 .Distinct()
                 .OrderBy(x => x)
-                .ToList();
+                .ToListAsync();
+
+            var otherReasonCounts = await otherQ
+    .Where(x => x.QuarantineReason != null && x.QuarantineReason != "")
+    .GroupBy(x => x.QuarantineReason)
+    .Select(g => new { Reason = g.Key, Count = g.Count() })
+    .ToListAsync();
 
             return new QuarantineDetailsDto
             {
@@ -660,7 +863,8 @@ namespace ClearPulse.Infrastructure.Services
                         PageSize = pageSize,
                         TotalPages = (int)Math.Ceiling((double)otherTotal / pageSize)
                     },
-                    AvailableReasons = otherReasons
+                    AvailableReasons = otherReasons,
+                     ReasonCounts = otherReasonCounts.ToDictionary(x => x.Reason, x => x.Count)
                 }
             };
         }
@@ -707,6 +911,191 @@ namespace ClearPulse.Infrastructure.Services
                 .Select(d => d.QuarantineReason)
                 .Distinct()
                 .OrderBy(r => r)
+                .ToListAsync();
+        }
+
+        public async Task<List<DeviceDetailsDto>> GetQuarantineDevicesForExport(
+    string tenantId,
+    string category,
+    string circleCode = null,
+    string search = null,
+    List<string> avReason = null,
+    List<string> adReason = null,
+    List<string> otherReason = null,
+    DateTime? startDate = null,
+    DateTime? endDate = null,
+    bool unique = false)
+        {
+            var query = _db.DeviceAuthEvents
+                .AsNoTracking()
+                .Where(d =>
+                    (d.Status == "UNHEALTHY" && d.QuarantineCategory == "AV_Issue")
+                    ||
+                    ((d.Status == "REJECT" || d.Status == "TIMEOUT") && d.QuarantineCategory == "AD_Issue")
+                    ||
+                    d.QuarantineCategory == "Other"
+                );
+
+            if (!string.IsNullOrEmpty(tenantId))
+                query = query.Where(d => d.TenantId == tenantId);
+
+            if (!string.IsNullOrEmpty(circleCode))
+                query = query.Where(d => d.CircleCode == circleCode);
+
+            var today = DateTime.Today;
+            var minimumAllowedDate = today.AddDays(-6);
+
+
+            var requestedStartDate = startDate?.Date ?? today;
+            var requestedEndDate = endDate?.Date ?? today;
+
+            if (requestedStartDate > requestedEndDate)
+                throw new ArgumentException("Start date cannot be greater than end date.");
+
+            if (requestedStartDate < minimumAllowedDate)
+                throw new ArgumentException("Custom date range can only include the last 7 days.");
+
+            if (requestedEndDate > today)
+                throw new ArgumentException("End date cannot be in the future.");
+
+            var requestedEndDateExclusive = requestedEndDate.AddDays(1);
+
+            query = query.Where(d =>
+                d.EventTime >= requestedStartDate &&
+                d.EventTime < requestedEndDateExclusive);
+
+            List<DeviceAuthEvent> devices;
+
+            if (unique)
+            {
+                devices = await query
+                    .Where(x => !string.IsNullOrEmpty(x.MacAddress))
+                    .GroupBy(x => x.MacAddress)
+                    .Select(g => g.OrderByDescending(x => x.EventTime).First())
+                    .ToListAsync();
+            }
+            else
+            {
+                devices = await query
+                    .OrderByDescending(x => x.EventTime)
+                    .ToListAsync();
+            }
+
+            IEnumerable<DeviceAuthEvent> categoryDevices = category switch
+            {
+                "AV" => devices.Where(d => d.Status == "UNHEALTHY" && d.QuarantineCategory == "AV_Issue"),
+                "AD" => devices.Where(d => (d.Status == "REJECT" || d.Status == "TIMEOUT") && d.QuarantineCategory == "AD_Issue"),
+                "Other" => devices.Where(d => d.QuarantineCategory == "Other"),
+                _ => throw new ArgumentException($"Invalid category: {category}")
+            };
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim().ToLower();
+                categoryDevices = categoryDevices.Where(d =>
+                    (!string.IsNullOrEmpty(d.MacAddress) && d.MacAddress.ToLower().Contains(s)) ||
+                    (!string.IsNullOrEmpty(d.Hostname) && d.Hostname.ToLower().Contains(s)) ||
+                    (!string.IsNullOrEmpty(d.BranchCode) && d.BranchCode.ToLower().Contains(s)) ||
+                    (!string.IsNullOrEmpty(d.CircleCode) && d.CircleCode.ToLower().Contains(s)));
+            }
+
+            var reasonFilter = category switch
+            {
+                "AV" => avReason,
+                "AD" => adReason,
+                "Other" => otherReason,
+                _ => null
+            };
+            if (reasonFilter != null && reasonFilter.Count > 0)
+                categoryDevices = categoryDevices.Where(x => reasonFilter.Contains(x.QuarantineReason));
+
+            var ordered = categoryDevices
+                .OrderByDescending(x => x.EventTime)
+                .Take(50000)
+                .ToList();
+
+            if (category == "AV")
+            {
+                var macs = ordered
+                    .Where(x => !string.IsNullOrEmpty(x.MacAddress))
+                    .Select(x => x.MacAddress)
+                    .Distinct()
+                    .ToList();
+
+                var inventory = await _db.DeviceInventory
+                    .AsNoTracking()
+                    .Where(x => macs.Contains(x.MacAddress))
+                    .Select(x => new { x.MacAddress, x.IpAddress })
+                    .ToListAsync();
+
+                var ipLookup = inventory
+                    .GroupBy(x => x.MacAddress)
+                    .ToDictionary(g => g.Key, g => g.First().IpAddress);
+
+                return ordered.Select(x =>
+                {
+                    var dto = MapToDeviceDetails(x);
+                    if (!string.IsNullOrEmpty(x.MacAddress) && ipLookup.TryGetValue(x.MacAddress, out var ip))
+                        dto.IpAddress = ip;
+                    return dto;
+                }).ToList();
+            }
+
+            return ordered.Select(MapToDeviceDetails).ToList();
+        }
+
+        public async Task<List<NASDeviceDto>> GetNasDevicesForExport(
+     string? tenantId,
+     string? circleCode = null,
+     bool? activeOnly = null,       // null = All, true = Active, false = Inactive
+     string? search = null,
+     DateTime? startDate = null,
+     DateTime? endDate = null)
+        {
+            var query = _db.NasDevices.AsNoTracking().AsQueryable();
+
+            if (!string.IsNullOrEmpty(tenantId))
+                query = query.Where(d => d.TenantId == tenantId);
+
+            if (!string.IsNullOrEmpty(circleCode) && !circleCode.Equals("All", StringComparison.OrdinalIgnoreCase))
+                query = query.Where(d => d.CircleCode == circleCode);
+
+            if (activeOnly.HasValue)
+                query = query.Where(d => d.IsActive == activeOnly.Value);
+
+            // Same default as the grid: no date selected = today
+            var today = DateTime.Today;
+            var start = startDate?.Date ?? today;
+            var end = endDate?.Date ?? today;
+
+            if (start > end)
+                throw new ArgumentException("Start date cannot be greater than end date.");
+
+            var endExclusive = end.AddDays(1);
+            query = query.Where(d => d.LastSeen >= start && d.LastSeen < endExclusive);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var s = search.Trim().ToLower();
+                query = query.Where(d =>
+                    (d.NasIp != null && d.NasIp.ToLower().Contains(s)) ||
+                    (d.CircleCode != null && d.CircleCode.ToLower().Contains(s)) ||
+                    (d.SourceSystem != null && d.SourceSystem.ToLower().Contains(s)));
+            }
+
+            return await query
+                .OrderByDescending(d => d.LastSeen)
+                .Take(50000)
+                .Select(d => new NASDeviceDto
+                {
+                    NasIp = d.NasIp,
+                    SourceSystem = d.SourceSystem,
+                    EventType = d.EventType,
+                    Circle = d.CircleCode ?? "Not Known",
+                    IsActive = d.IsActive,
+                    Status = d.IsActive ? "Active" : "Inactive",
+                    LastSeen = d.LastSeen
+                })
                 .ToListAsync();
         }
 
@@ -792,29 +1181,56 @@ namespace ClearPulse.Infrastructure.Services
 
         #region Private Helper Methods
 
-        private async Task<NASMetrics> GetNASMetricsAsync(string tenantId, string circleCode , string timeFilter)
+        private async Task<NASMetrics> GetNASMetricsAsync(string tenantId, string circleCode , string timeFilter, DateTime? startDate = null, DateTime? endDate = null)
         {
             var query = _db.NasDevices.AsQueryable();
 
             if (!string.IsNullOrEmpty(tenantId))
                 query = query.Where(n => n.TenantId == tenantId);
 
+
             if (!string.IsNullOrEmpty(circleCode))
                 query = query.Where(n => n.CircleCode == circleCode);
 
-            if (!string.IsNullOrEmpty(timeFilter))
-            {
-                switch (timeFilter.ToLower())
-                {
-                    case "today":
-                        query = query.Where(n => n.LastSeen >= DateTime.Today);
-                        break;
+            var today = DateTime.Today;
+            var minimumAllowedDate = today.AddDays(-6);
 
-                    case "week":
-                        query = query.Where(n => n.LastSeen >= DateTime.Today.AddDays(-7));
-                        break;
-                }
+            if (!string.Equals(timeFilter, "custom", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "Only custom date filter is supported.");
             }
+            if (!startDate.HasValue || !endDate.HasValue)
+            {
+                throw new ArgumentException(
+                    "Start date and end date are required.");
+            }
+
+            var customStartDate = startDate.Value.Date;
+            var customEndDate = endDate.Value.Date;
+
+            if (customStartDate > customEndDate)
+            {
+                throw new ArgumentException(
+                    "Start date cannot be greater than end date.");
+            }
+
+            if (customStartDate < minimumAllowedDate)
+            {
+                throw new ArgumentException(
+                    "Date range can only include data from the last 7 days.");
+            }
+
+            if (customEndDate > today)
+            {
+                throw new ArgumentException(
+                    "End date cannot be in the future.");
+            }
+
+            var exclusiveEndDate = customEndDate.AddDays(1);
+            query = query.Where(n =>
+       n.LastSeen >= customStartDate &&
+       n.LastSeen < exclusiveEndDate);
 
             var nasDevices = await query.ToListAsync();
 
@@ -830,8 +1246,10 @@ namespace ClearPulse.Infrastructure.Services
                 Details = nasDevices.Select(n => new NASDeviceDto
                 {
                     NasIp = n.NasIp,
-                    BranchCode = n.BranchCode,
-                    BranchName = n.BranchName,
+                    //BranchCode = n.BranchCode,
+                    //BranchName = n.BranchName,
+                    SourceSystem = n.SourceSystem,
+                    EventType = n.EventType,
                     RequestCount = n.RequestCount,
                     LastSeen = n.LastSeen,
                     IsActive = n.IsActive,
@@ -952,50 +1370,195 @@ namespace ClearPulse.Infrastructure.Services
             };
         }
 
-        private async Task<List<CircleMetricsDto>> GetCircleBreakdownAsync(string tenantId, string timeFilter)
+        //private async Task<List<CircleMetricsDto>> GetCircleBreakdownAsync(string tenantId, string timeFilter, DateTime? startDate = null, DateTime? endDate = null)
+        //{
+        //    var query = _db.DeviceAuthEvents.AsQueryable();
+
+        //    if (!string.IsNullOrEmpty(tenantId))
+        //        query = query.Where(d => d.TenantId == tenantId);
+
+        //    // Date filter
+        //    if (!string.Equals(timeFilter, "custom",
+        //        StringComparison.OrdinalIgnoreCase))
+        //    {
+        //        timeFilter = "custom";
+        //    }
+
+        //    // If no date is selected, use today
+        //    var today = DateTime.Today;
+
+        //    var customStartDate = startDate?.Date ?? today;
+        //    var customEndDate = endDate?.Date ?? today;
+
+        //    var minimumAllowedDate = today.AddDays(-6);
+
+        //    if (customStartDate > customEndDate)
+        //    {
+        //        throw new ArgumentException(
+        //            "Start date cannot be greater than end date.");
+        //    }
+
+        //    if (customStartDate < minimumAllowedDate)
+        //    {
+        //        throw new ArgumentException(
+        //            "Date range can only include the last 7 days.");
+        //    }
+
+        //    if (customEndDate > today)
+        //    {
+        //        throw new ArgumentException(
+        //            "End date cannot be in the future.");
+        //    }
+
+        //    var exclusiveEndDate = customEndDate.AddDays(1);
+
+        //    query = query.Where(d =>
+        //        d.EventTime >= customStartDate &&
+        //        d.EventTime < exclusiveEndDate);
+
+        //    // Get latest event per device per circle
+        //    var circleGroups = await query
+        //        .GroupBy(d => new { d.MacAddress, d.CircleCode })
+        //        .Select(g => g.OrderByDescending(d => d.EventTime).FirstOrDefault())
+        //        .ToListAsync();
+
+        //    var circleBreakdown = circleGroups
+        //        .GroupBy(d => d.CircleCode)
+        //        .Select(g => new CircleMetricsDto
+        //        {
+        //            CircleCode = g.Key,
+        //            CircleName = g.Key, // Would lookup from CircleMaster table
+        //            Total802_1xMachines = g.Count(d => d.AuthType == "802.1x" &&
+        //                                                d.Username != null &&
+        //                                                d.Username.StartsWith("host/")),
+        //            TotalMABMachines = g.Count(d => d.AuthType == "MAB"),
+        //            TotalHealthyMachines = g.Count(d => d.HealthStatus == "Healthy"),
+        //            TotalUnhealthyMachines = g.Count(d => d.HealthStatus == "Unhealthy"),
+
+        //            TotalDevices = g.Count(),
+        //            HealthPercentage = g.Count() > 0 ? (g.Count(d => d.HealthStatus == "Healthy") * 100.0 / g.Count()) : 0
+        //        })
+        //        .OrderBy(c => c.CircleCode)
+        //        .ToList();
+
+        //    return circleBreakdown;
+        //}
+
+        private async Task<List<CircleMetricsDto>> GetCircleBreakdownAsync(
+    string tenantId,
+    string timeFilter,
+    DateTime? startDate = null,
+    DateTime? endDate = null)
         {
-            var query = _db.DeviceAuthEvents.AsQueryable();
+            var today = DateTime.Today;
 
-            if (!string.IsNullOrEmpty(tenantId))
-                query = query.Where(d => d.TenantId == tenantId);
+            var customStartDate = startDate?.Date ?? today;
+            var customEndDate = endDate?.Date ?? today;
 
-            if (!string.IsNullOrEmpty(timeFilter))
+            var minimumAllowedDate = today.AddDays(-6);
+
+            if (customStartDate > customEndDate)
             {
-                var today = DateTime.Today;
-                
-                switch (timeFilter.ToLower())
-                {
-                    case "today":
-                        query = query.Where(d => d.EventTime >= today);
-                        break;
-
-                    case "week":
-                        query = query.Where(d => d.EventTime >= today.AddDays(-7));
-                        break;
-                }
+                throw new ArgumentException(
+                    "Start date cannot be greater than end date.");
             }
 
-            // Get latest event per device per circle
-            var circleGroups = await query
-                .GroupBy(d => new { d.MacAddress, d.CircleCode })
-                .Select(g => g.OrderByDescending(d => d.EventTime).FirstOrDefault())
-                .ToListAsync();
+            if (customStartDate < minimumAllowedDate)
+            {
+                throw new ArgumentException(
+                    "Date range can only include the last 7 days.");
+            }
 
+            if (customEndDate > today)
+            {
+                throw new ArgumentException(
+                    "End date cannot be in the future.");
+            }
+
+            var exclusiveEndDate = customEndDate.AddDays(1);
+
+            // 1. Filter only required tenant/date range
+            var filteredQuery = _db.DeviceAuthEvents
+                .AsNoTracking()
+                .Where(d =>
+                    d.TenantId == tenantId &&
+                    d.EventTime >= customStartDate &&
+                    d.EventTime < exclusiveEndDate);
+
+            // 2. Get latest EventTime for each MAC + Circle
+            var latestEvents = filteredQuery
+                .GroupBy(d => new
+                {
+                    d.MacAddress,
+                    d.CircleCode
+                })
+                .Select(g => new
+                {
+                    g.Key.MacAddress,
+                    g.Key.CircleCode,
+                    EventTime = g.Max(x => x.EventTime)
+                });
+
+            // 3. Join back to get the actual latest event
+            var circleGroups = await (
+                from d in filteredQuery
+                join latest in latestEvents
+                    on new
+                    {
+                        d.MacAddress,
+                        d.CircleCode,
+                        d.EventTime
+                    }
+                    equals new
+                    {
+                        latest.MacAddress,
+                        latest.CircleCode,
+                        latest.EventTime
+                    }
+                select new
+                {
+                    d.MacAddress,
+                    d.CircleCode,
+                    d.AuthType,
+                    d.Username,
+                    d.HealthStatus
+                }
+            ).ToListAsync();
+
+            // 4. Build circle metrics in memory
             var circleBreakdown = circleGroups
                 .GroupBy(d => d.CircleCode)
-                .Select(g => new CircleMetricsDto
+                .Select(g =>
                 {
-                    CircleCode = g.Key,
-                    CircleName = g.Key, // Would lookup from CircleMaster table
-                    Total802_1xMachines = g.Count(d => d.AuthType == "802.1x" &&
-                                                        d.Username != null &&
-                                                        d.Username.StartsWith("host/")),
-                    TotalMABMachines = g.Count(d => d.AuthType == "MAB"),
-                    TotalHealthyMachines = g.Count(d => d.HealthStatus == "Healthy"),
-                    TotalUnhealthyMachines = g.Count(d => d.HealthStatus == "Unhealthy"),
+                    var totalDevices = g.Count();
 
-                    TotalDevices = g.Count(),
-                    HealthPercentage = g.Count() > 0 ? (g.Count(d => d.HealthStatus == "Healthy") * 100.0 / g.Count()) : 0
+                    var healthyDevices = g.Count(d =>
+                        d.HealthStatus == "Healthy");
+
+                    return new CircleMetricsDto
+                    {
+                        CircleCode = g.Key,
+                        CircleName = g.Key,
+
+                        Total802_1xMachines = g.Count(d =>
+                            d.AuthType == "802.1x" &&
+                            d.Username != null &&
+                            d.Username.StartsWith("host/")),
+
+                        TotalMABMachines = g.Count(d =>
+                            d.AuthType == "MAB"),
+
+                        TotalHealthyMachines = healthyDevices,
+
+                        TotalUnhealthyMachines = g.Count(d =>
+                            d.HealthStatus == "Unhealthy"),
+
+                        TotalDevices = totalDevices,
+
+                        HealthPercentage = totalDevices > 0
+                            ? healthyDevices * 100.0 / totalDevices
+                            : 0
+                    };
                 })
                 .OrderBy(c => c.CircleCode)
                 .ToList();

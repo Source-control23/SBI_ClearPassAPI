@@ -168,7 +168,7 @@ namespace ClearPulse.Service.Data
                 // Common fields
                 row["SourceSystem"] = (object)e.SourceSystem ?? DBNull.Value;
                 row["EventType"] = (object)e.EventType ?? DBNull.Value;
-                row["CircleCode"] = (object)e.CircleCode ?? "GLOBAL";
+                row["CircleCode"] = (object)e.CircleCode ?? "Not Known";
                 row["Status"] = (object)e.Status ?? DBNull.Value;
                 row["EventTime"] = (object)e.EventTime ?? DateTime.UtcNow;
                 row["MetadataJson"] = (object)e.MetadataJson ?? DBNull.Value;

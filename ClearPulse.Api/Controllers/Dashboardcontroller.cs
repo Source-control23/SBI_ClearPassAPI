@@ -2,6 +2,7 @@
 using ClearPulse.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text;
 
 namespace ClearPulse.Api.Controllers
 {
@@ -27,7 +28,7 @@ namespace ClearPulse.Api.Controllers
         /// Includes: a) 802.1x, b) MAB, c) Healthy, d) Unhealthy, e) NAS, f) Circle breakdown, h) Cluster, i) AD
         /// </summary>
         [HttpGet("unified")]
-        public async Task<ActionResult<DashboardMetricsDto>> GetUnifiedDashboard([FromQuery] string timeFilter = "today", [FromQuery] string? circleCode = null)
+        public async Task<ActionResult<DashboardMetricsDto>> GetUnifiedDashboard([FromQuery] string timeFilter = "custom", [FromQuery] string? circleCode = null, [FromQuery] DateTime? startDate = null, [FromQuery] DateTime? endDate = null)
         {
             var tenantId = User.FindFirst("tenantId")?.Value;
             // Circle Head should only see their own circle
@@ -36,7 +37,7 @@ namespace ClearPulse.Api.Controllers
                 circleCode = User.FindFirst("circleCode")?.Value;
             }
 
-            var metrics = await _dashboardService.GetUnifiedDashboardAsync(tenantId, circleCode, timeFilter);
+            var metrics = await _dashboardService.GetUnifiedDashboardAsync(tenantId, circleCode, timeFilter, startDate, endDate);
             return Ok(metrics);
         }
 
@@ -162,8 +163,8 @@ namespace ClearPulse.Api.Controllers
         /// As per SBI requirements for quarantine reporting
         /// </summary>
         [HttpGet("quarantine")]
-        public async Task<ActionResult<QuarantineDetailsDto>> GetQuarantineDetails([FromQuery] int avPage = 1,[FromQuery] int adPage = 1,[FromQuery] int otherPage = 1,[FromQuery] int pageSize = 10,[FromQuery] string? search = null,
-     [FromQuery] string? avReason = null,[FromQuery] string? adReason = null,[FromQuery] string? otherReason = null, [FromQuery] string? circleCode = null, [FromQuery] string? timeFilter = "today")
+        public async Task<ActionResult<QuarantineDetailsDto>> GetQuarantineDetails([FromQuery] int avPage = 1,[FromQuery] int adPage = 1,[FromQuery] int otherPage = 1,[FromQuery] int pageSize = 10,
+            [FromQuery] string? search = null,[FromQuery] List<string> avReason = null,[FromQuery] List<string> adReason = null,[FromQuery] List<string> otherReason = null, [FromQuery] string? circleCode = null, [FromQuery] string? timeFilter = "custom", [FromQuery] DateTime? startDate = null,[FromQuery] DateTime? endDate = null, [FromQuery] bool unique = false)
         {
             var tenantId = User.FindFirst("tenantId")?.Value;
             var circle = !string.IsNullOrEmpty(circleCode) && circleCode != "All"
@@ -176,7 +177,7 @@ namespace ClearPulse.Api.Controllers
                 tenantId, circle,
                 avPage, adPage, otherPage,
                 pageSize, search,
-                avReason, adReason, otherReason,timeFilter);
+                avReason, adReason, otherReason,timeFilter, startDate, endDate, unique);
 
             return Ok(result);
         }
@@ -237,8 +238,144 @@ namespace ClearPulse.Api.Controllers
             }
         }
 
+        [HttpGet("quarantine/export")]
+        public async Task<IActionResult> ExportQuarantine(
+    [FromQuery] string category,
+    [FromQuery] string? circleCode,
+    [FromQuery] DateTime? startDate,
+    [FromQuery] DateTime? endDate,
+    [FromQuery] string? search,
+    [FromQuery] List<string>? adReason,
+    [FromQuery] List<string>? otherReason,
+    [FromQuery] List<string>? avReason,
+    [FromQuery] bool unique = false)
+        {
+            var tenantId = User.FindFirst("tenantId")?.Value;
+            var circle = !string.IsNullOrEmpty(circleCode) && circleCode != "All"
+                ? circleCode
+                : User.IsInRole("CircleHead")
+                    ? User.FindFirst("circleCode")?.Value
+                    : null;
+
+            var devices = await _dashboardService.GetQuarantineDevicesForExport(
+                tenantId, category, circle, search, avReason, adReason, otherReason, startDate, endDate, unique);
+
+            var csvBytes = category switch
+            {
+                "AD" => GenerateAdCsv(devices),
+                "Other" => GenerateOtherCsv(devices),
+                "AV" => GenerateAvCsv(devices),
+                _ => throw new ArgumentException("Invalid category")
+            };
+
+            var fileName = $"{category}_export_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+            return File(csvBytes, "text/csv", fileName);
+        }
+
+        [HttpGet("nas-devices/export")]
+        public async Task<IActionResult> ExportNasDevices(
+            [FromQuery] string? circleCode,
+            [FromQuery] bool? activeOnly,
+            [FromQuery] string? search,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate)
+        {
+            try
+            {
+                var tenantId = User.FindFirst("tenantId")?.Value;
+
+                // Same circle handling as the quarantine export
+                var circle = !string.IsNullOrEmpty(circleCode) && circleCode != "All"
+                    ? circleCode
+                    : User.IsInRole("CircleHead")
+                        ? User.FindFirst("circleCode")?.Value
+                        : null;
+
+                var devices = await _dashboardService.GetNasDevicesForExport(
+                    tenantId, circle, activeOnly, search, startDate, endDate);
+
+                var sb = new StringBuilder();
+                sb.AppendLine("NAS IP,Source System,Event Type,Circle,Status,Last Seen");
+
+                foreach (var d in devices)
+                {
+                    sb.AppendLine(string.Join(",",
+                        Csv(d.NasIp),
+                        Csv(d.SourceSystem),
+                        Csv(d.EventType),
+                        Csv(d.Circle),
+                        Csv(d.Status),
+                        Csv(d.LastSeen.ToString("dd/MM/yyyy, HH:mm:ss"))));
+                }
+
+                // UTF-8 BOM so Excel opens it correctly
+                var bytes = new UTF8Encoding(true).GetPreamble()
+                    .Concat(Encoding.UTF8.GetBytes(sb.ToString()))
+                    .ToArray();
+
+                return File(bytes, "text/csv", $"nas-devices_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        private static string Csv(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            // Guard against CSV/formula injection when opened in Excel
+            if ("=+-@".Contains(value[0])) value = "'" + value;
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        }
+
         #region CSV Generation Helpers
 
+        private byte[] GenerateAdCsv(List<DeviceDetailsDto> devices)
+        {
+            var csv = new System.Text.StringBuilder();
+            csv.AppendLine("MAC Address,Username,AuthType,Circle,Login Status,Reason,Timestamp,Status");
+
+            foreach (var d in devices)
+            {
+                csv.AppendLine($"{EscapeCSV(d.MacAddress)},{EscapeCSV(d.Username)}," +
+                               $"{EscapeCSV(d.AuthType)},{EscapeCSV(d.CircleCode)}," +
+                               $"{EscapeCSV(d.Status)},{EscapeCSV(d.QuarantineReason ?? d.QuarantineCategory)}," +
+                               $"{d.EventTime:yyyy-MM-dd HH:mm:ss},{EscapeCSV(d.HealthStatus)}");
+            }
+            return System.Text.Encoding.UTF8.GetBytes(csv.ToString());
+        }
+
+        private byte[] GenerateOtherCsv(List<DeviceDetailsDto> devices)
+        {
+            // Same shape as AD table (Others tab reuses ADReportTable's columns)
+            var csv = new System.Text.StringBuilder();
+            csv.AppendLine("MAC Address,Username,AuthType,Circle,Login Status,Reason,Timestamp,Status");
+
+            foreach (var d in devices)
+            {
+                csv.AppendLine($"{EscapeCSV(d.MacAddress)},{EscapeCSV(d.Username)}," +
+                               $"{EscapeCSV(d.AuthType)},{EscapeCSV(d.CircleCode)}," +
+                               $"{EscapeCSV(d.Status)},{EscapeCSV(d.QuarantineReason ?? d.QuarantineCategory)}," +
+                               $"{d.EventTime:yyyy-MM-dd HH:mm:ss},{EscapeCSV(d.HealthStatus)}");
+            }
+            return System.Text.Encoding.UTF8.GetBytes(csv.ToString());
+        }
+
+        private byte[] GenerateAvCsv(List<DeviceDetailsDto> devices)
+        {
+            var csv = new System.Text.StringBuilder();
+            csv.AppendLine("MAC Address,IP Address,Hostname,Circle,Reason,Timestamp,Status");
+
+            foreach (var d in devices)
+            {
+                csv.AppendLine($"{EscapeCSV(d.MacAddress)},{EscapeCSV(d.IpAddress)}," +
+                               $"{EscapeCSV(d.Hostname)},{EscapeCSV(d.CircleCode)}," +
+                               $"{EscapeCSV(d.QuarantineReason ?? d.QuarantineCategory)}," +
+                               $"{d.EventTime:yyyy-MM-dd HH:mm:ss},{EscapeCSV(d.Status)}");
+            }
+            return System.Text.Encoding.UTF8.GetBytes(csv.ToString());
+        }
         private byte[] GenerateDeviceCSV(List<DeviceDetailsDto> devices)
         {
             var csv = new System.Text.StringBuilder();

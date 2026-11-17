@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.Text;
@@ -62,7 +63,11 @@ try
     // Database
     // --------------------------------------
     builder.Services.AddDbContext<ClearPulseDbContext>(opt =>
-        opt.UseSqlServer(builder.Configuration.GetConnectionString("ClearPulseDb")));
+    {
+        opt.UseSqlServer(builder.Configuration.GetConnectionString("ClearPulseDb"));
+        opt.EnableDetailedErrors();
+        opt.LogTo(Console.WriteLine, LogLevel.Information);
+    });
 
     // --------------------------------------
     // Services

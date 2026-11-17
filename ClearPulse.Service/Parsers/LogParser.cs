@@ -164,7 +164,7 @@ namespace ClearPulse.Service.Parsers
             }
 
             // ── Pattern 4: no circle code ─────────────────────────────────────────
-            return (username, "GLOBAL", null);
+            return (username, "Not Known", null);
         }
 
         public string ExtractAdServer(string alerts)
@@ -241,7 +241,8 @@ namespace ClearPulse.Service.Parsers
             if (string.IsNullOrWhiteSpace(alerts))
                 return (null, null, null);
 
-            string alertText = alerts.ToLowerInvariant();
+            //string alertText = alerts.ToLowerInvariant();
+            string alertText = alerts.Trim().ToLowerInvariant();
             string category = null;
             string reason = null;
             string isolationState = "Accepted";
@@ -270,7 +271,7 @@ namespace ClearPulse.Service.Parsers
             // ErrorCode=206 (MAB)
             // ErrorCode=216 (802.1x)
             // Any future variations
-            else if (errorCode == 206 ||errorCode == 216 || alertText.Contains("user not found"))
+            else if (errorCode == 206 ||errorCode == 216 || alertText.Contains("user not found") || alertText.Contains("failed to get value"))
             {
                 category = "AD_Issue";
                 reason = "User Not Found";
@@ -288,32 +289,17 @@ namespace ClearPulse.Service.Parsers
             // OTHER ISSUES
             // =====================================================
 
-            else if (
-                alertText.Contains("authentication failed") ||
-                alertText.Contains("password change failed") ||
-                alertText.Contains("failed to get value") ||
-                alertText.Contains("applied 'reject'") ||
-                alertText.Contains("applied reject")
-            )
+            else
             {
+                // Any other REJECT/TIMEOUT/error alert
+                // will be classified as Other.
+
                 category = "Other";
-                reason = "Authentication Failed";
+
+                // Keep the actual ClearPass alert as the reason
+                reason = alerts.Trim();
+
                 isolationState = "Isolated";
-            }
-
-            // =====================================================
-            // SUCCESS
-            // =====================================================
-
-            else if (
-                alertText.Contains("authenticated successfully") ||
-                alertText.Contains("applied 'accept'") ||
-                alertText.Contains("applied accept")
-            )
-            {
-                category = null;
-                reason = "Success";
-                isolationState = "Accepted";
             }
 
             return (category, reason, isolationState);

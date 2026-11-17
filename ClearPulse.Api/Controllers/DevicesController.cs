@@ -79,22 +79,31 @@ namespace ClearPulse.Api.Controllers
             }
 
             // ── Date range filter on EventTime ──────────────────────────────
-            if (fromDate.HasValue)
+            if (fromDate.HasValue || toDate.HasValue)
             {
-                var from = fromDate.Value.Date;
-                q = q.Where(d => d.EventTime >= from);
-            }
+                // If only fromDate is supplied
+                if (fromDate.HasValue)
+                {
+                    var from = fromDate.Value.Date;
+                    q = q.Where(d => d.EventTime >= from);
+                }
 
-            if (toDate.HasValue)
-            {
-                var to = toDate.Value.TimeOfDay == TimeSpan.Zero
-                    ? toDate.Value.Date.AddDays(1).AddTicks(-1)
-                    : toDate.Value;
-                q = q.Where(d => d.EventTime <= to);
+                // If only toDate is supplied
+                if (toDate.HasValue)
+                {
+                    var to = toDate.Value.Date.AddDays(1);
+                    q = q.Where(d => d.EventTime < to);
+                }
             }
             else
             {
-                q = q.Where(d => d.EventTime <= DateTime.Now);
+                // No date selected → today's data
+                var today = DateTime.Today;
+                var tomorrow = today.AddDays(1);
+
+                q = q.Where(d =>
+                    d.EventTime >= today &&
+                    d.EventTime < tomorrow);
             }
 
             var latestDevices = await q

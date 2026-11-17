@@ -15,7 +15,7 @@ namespace ClearPulse.Service.Inventory
         /// Builds device inventory records from authentication events
         /// Aggregates multiple auth events per device into a single inventory record
         /// </summary>
-        public List<DeviceInventory> BuildFromAuthEvents(List<DeviceAuthEvent> authEvents)
+        public List<DeviceInventory> BuildFromAuthEvents(List<DeviceAuthEvent> authEvents, Dictionary<string, string> macIpLookup = null)
         {
             if (authEvents == null || authEvents.Count == 0)
                 return new List<DeviceInventory>();
@@ -49,11 +49,15 @@ namespace ClearPulse.Service.Inventory
                 var complianceIssues = DetermineComplianceIssues(latestEvent);
                 bool isCompliant = string.IsNullOrEmpty(complianceIssues);
 
+                // ← ADD: look up the IP captured for this MAC during log parsing
+                string resolvedIp = null;
+                macIpLookup?.TryGetValue(group.Key.MacAddress, out resolvedIp);
+
                 var inventory = new DeviceInventory
                 {
                     MacAddress = group.Key.MacAddress,
                     Hostname = latestEvent.Hostname,
-                    IpAddress = null, // Would need to be extracted from NAS/RADIUS if available
+                    IpAddress = resolvedIp, // Would need to be extracted from NAS/RADIUS if available
                     DeviceType = DetermineDeviceType(latestEvent.Hostname, latestEvent.Username),
                     OperatingSystem = DetermineOperatingSystem(latestEvent.AuthMethod, latestEvent.Username),
                     OSVersion = latestEvent.WindowsPatchLevel,

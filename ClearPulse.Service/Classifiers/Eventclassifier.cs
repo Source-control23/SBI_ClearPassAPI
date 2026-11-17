@@ -1,6 +1,7 @@
 ﻿using ClearPulse.Core.Entities;
 using ClearPulse.Service.Parsers;
 using System;
+using System.Net;
 using System.Text.Json;
 
 namespace ClearPulse.Service.Classifiers
@@ -102,10 +103,11 @@ namespace ClearPulse.Service.Classifiers
             return false;
         }
 
-        public bool TryClassifyDeviceAuth(JsonElement root, string user, DateTime eventTime, string line, out DeviceAuthEvent entity, out QuarantineDetail quarantine)
+        public bool TryClassifyDeviceAuth(JsonElement root, string user, DateTime eventTime, string line, out DeviceAuthEvent entity, out QuarantineDetail quarantine, out string ipAddress)
         {
             entity = null;
             quarantine = null;
+            ipAddress = null;
 
             try
             {
@@ -128,15 +130,16 @@ namespace ClearPulse.Service.Classifiers
                 string postureToken = _parser.GetMappedJsonString(root, "healthstatus");
                 string service = _parser.GetMappedJsonString(root, "service");
                 string enforcement = _parser.GetMappedJsonString(root, "enforcement");
-                string eventOutcome = _parser.GetMappedJsonString(root, "eventOutcome");
+                //string eventOutcome = _parser.GetMappedJsonString(root, "eventOutcome");
                 string loginStatus = _parser.GetMappedJsonString(root, "status");
                 //AV
                 string antivirusInput = _parser.GetMappedJsonString(root, "antivirusInput");
                 string antivirusOutput = _parser.GetMappedJsonString(root, "antivirusOutput");
+                ipAddress = _parser.GetMappedJsonString(root, "ipAddress");
                 string antivirusApt = _parser.GetMappedJsonString(root, "antivirusApt");
-                bool isAVLog = !string.IsNullOrWhiteSpace(antivirusInput) || !string.IsNullOrWhiteSpace(antivirusOutput);
+                bool isAVLog = !string.IsNullOrWhiteSpace(antivirusApt) || !string.IsNullOrWhiteSpace(antivirusInput) || !string.IsNullOrWhiteSpace(antivirusOutput);
 
-                _logger.LogInformation("Mapped Values | MacAddress={Mac} | Username={User} | NasIp={NasIp} | Alerts={Alerts} | ErrorCode={ErrorCode} | PostureToken={Posture} | Service={Service} | LogInStatus={LogInStatus} | AVOutput={AVOutput} | enforcement={enforcement}", mac, user, nasIp, alerts, errorCodeStr, postureToken, service, loginStatus ,  antivirusOutput , enforcement);
+                _logger.LogInformation("Mapped Values | MacAddress={Mac} | Username={User} | NasIp={NasIp} | Alerts={Alerts} | ErrorCode={ErrorCode} | PostureToken={Posture} | Service={Service} | LogInStatus={LogInStatus} | AVOutput={AVOutput} | ipAddress={ipAddress} |enforcement={enforcement} | antivirusApt={antivirusApt}", mac, user, nasIp, alerts, errorCodeStr, postureToken, service, loginStatus ,  antivirusOutput ,ipAddress, enforcement, antivirusApt);
 
                 int? errorCode = _parser.ExtractErrorCode(errorCodeStr, alerts);
 
@@ -197,7 +200,8 @@ namespace ClearPulse.Service.Classifiers
                     CircleCode = circleCode,
                     EventType = "Authentication",
                     EventTime = eventTime,
-                    Status = !string.IsNullOrWhiteSpace(loginStatus) ? loginStatus: (isAVLog && !string.IsNullOrWhiteSpace(eventOutcome) ? eventOutcome : (healthStatus == "Healthy" ? "Unknown" : "Unhealthy")),
+                    Status = isAVLog? antivirusApt?.Trim().ToUpperInvariant(): (!string.IsNullOrWhiteSpace(loginStatus) ? loginStatus.Trim().ToUpperInvariant() : (healthStatus == "Healthy" ? "Unknown" : "Unhealthy")),
+                    //Status = !string.IsNullOrWhiteSpace(loginStatus) ? loginStatus: (isAVLog && !string.IsNullOrWhiteSpace(eventOutcome) ? eventOutcome : (healthStatus == "Healthy" ? "Unknown" : "Unhealthy")),
                     SourceSystem = "ClearPass",
                     MetadataJson = line,
                     TenantId = _defaultTenantId

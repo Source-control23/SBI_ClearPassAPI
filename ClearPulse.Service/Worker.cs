@@ -52,6 +52,7 @@ namespace ClearPulse.Service
             var bufferPath = _configuration.GetValue<string>("LogProcessor:BufferPath") ?? "C:/logstash-buffer";
             var archivePath = _configuration.GetValue<string>("LogProcessor:ArchivePath") ?? Path.Combine(bufferPath, "archive");
             var connectionString = _configuration.GetValue<string>("LogProcessor:ConnectionString");
+            var retentionDays = _configuration.GetValue<int?>("LogProcessor:ArchiveRetentionDays") ?? 2;
 
             Directory.CreateDirectory(bufferPath);
             Directory.CreateDirectory(archivePath);
@@ -83,7 +84,10 @@ namespace ClearPulse.Service
                         string dest = Path.Combine(archivePath, $"{DateTime.Now:yyyyMMddHHmmss}_{Path.GetFileName(file)}");
                         File.Move(file, dest);
                         _logger.LogInformation("Archived: {file}", Path.GetFileName(file));
+
                     }
+                    // Runs every loop (every 10s), even when there are no new files
+                    CleanupOldArchives(archivePath, retentionDays);
                 }
                 catch (Exception ex)
                 {
@@ -112,6 +116,7 @@ namespace ClearPulse.Service
             };
 
             var nasIpTracker = new HashSet<string>(); // Track unique NAS IPs
+            var macIpTracker = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // ← ADD
             int lineNumber = 0;
             int processedCount = 0;
             int errorCount = 0;
@@ -134,7 +139,7 @@ namespace ClearPulse.Service
 
                     try
                     {
-                        await ProcessLogLineAsync(line, batches, nasIpTracker);
+                        await ProcessLogLineAsync(line, batches, nasIpTracker, macIpTracker);
                         processedCount++;
                     }
                     catch (Exception ex)
@@ -148,7 +153,7 @@ namespace ClearPulse.Service
                     processedCount, Path.GetFileName(filePath), errorCount);
 
                 // Bulk insert all batches
-                await BulkInsertAllBatchesAsync(batches, connectionString);
+                await BulkInsertAllBatchesAsync(batches, connectionString , macIpTracker);
             }
             catch (Exception ex)
             {
@@ -157,7 +162,7 @@ namespace ClearPulse.Service
             }
         }
 
-        private async Task ProcessLogLineAsync(string line, Dictionary<string, List<BaseLogEntity>> batches, HashSet<string> nasIpTracker)
+        private async Task ProcessLogLineAsync(string line, Dictionary<string, List<BaseLogEntity>> batches, HashSet<string> nasIpTracker, Dictionary<string, string> macIpTracker)
         {
             using var doc = JsonDocument.Parse(line);
             var root = doc.RootElement;
@@ -186,7 +191,7 @@ namespace ClearPulse.Service
                 typeFound = true;
             }
             // Try to classify as Device Authentication event
-            else if (_eventClassifier.TryClassifyDeviceAuth(root, user, eventTime, line, out var deviceAuth, out var quarantine))
+            else if (_eventClassifier.TryClassifyDeviceAuth(root, user, eventTime, line, out var deviceAuth, out var quarantine, out var ipAddress))
             {
                 batches["DeviceAuthEvents"].Add(deviceAuth);
 
@@ -195,19 +200,11 @@ namespace ClearPulse.Service
                     batches["QuarantineDetails"].Add(quarantine);
                 }
 
-                // Store NAS only for 802.1X
-                //if (deviceAuth.AuthType.Equals("802.1x", StringComparison.OrdinalIgnoreCase) &&
-                //    !string.IsNullOrWhiteSpace(deviceAuth.NasIp) &&
-                //    !nasIpTracker.Contains(deviceAuth.NasIp))
-                //{
-                //    var nasDevice = _eventClassifier.CreateNasDevice(deviceAuth.NasIp, deviceAuth.CircleCode, deviceAuth.EventTime, line);
-
-                //    if (nasDevice != null)
-                //    {
-                //        batches["NasDevices"].Add(nasDevice);
-                //        nasIpTracker.Add(deviceAuth.NasIp);
-                //    }
-                //}
+                // ← ADD: remember this MAC's IP if the log actually carried one
+                if (!string.IsNullOrWhiteSpace(deviceAuth.MacAddress) && !string.IsNullOrWhiteSpace(ipAddress))
+                {
+                    macIpTracker[deviceAuth.MacAddress] = ipAddress;
+                }
 
                 typeFound = true;
             }
@@ -231,7 +228,7 @@ namespace ClearPulse.Service
             }
         }
 
-        private async Task BulkInsertAllBatchesAsync(Dictionary<string, List<BaseLogEntity>> batches, string connectionString)
+        private async Task BulkInsertAllBatchesAsync(Dictionary<string, List<BaseLogEntity>> batches, string connectionString, Dictionary<string, string> macIpTracker)
         {
             // First, process all event batches (these are simple inserts)
             foreach (var kvp in batches)
@@ -266,6 +263,16 @@ namespace ClearPulse.Service
                     // Build device inventory records from auth events
                     var inventoryRecords = _inventoryBuilder.BuildFromAuthEvents(authEvents);
 
+                    // ← ADD: fill in IP from the per-file MAC→IP lookup
+                    foreach (var record in inventoryRecords)
+                    {
+                        if (!string.IsNullOrWhiteSpace(record.MacAddress) &&
+                            macIpTracker.TryGetValue(record.MacAddress, out var ip))
+                        {
+                            record.IpAddress = ip;
+                        }
+                    }
+
                     if (inventoryRecords.Count > 0)
                     {
                         // UPSERT into DeviceInventory table (current state)
@@ -277,6 +284,46 @@ namespace ClearPulse.Service
                 {
                     _logger.LogError(ex, "Failed to process device auth events and inventory");
                 }
+            }
+        }
+
+        private void CleanupOldArchives(string archivePath, int retentionDays)
+        {
+            try
+            {
+                var cutoff = DateTime.Now.AddDays(-retentionDays);
+
+                foreach (var file in Directory.GetFiles(archivePath, "*.jsonl"))
+                {
+                    try
+                    {
+                        var name = Path.GetFileName(file);
+                        DateTime archivedAt;
+
+                        if (name.Length < 14 ||
+                            !DateTime.TryParseExact(name.Substring(0, 14), "yyyyMMddHHmmss",
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                System.Globalization.DateTimeStyles.None, out archivedAt))
+                        {
+                            // Older files without the prefix (e.g. 20260903140250_logs-...)
+                            archivedAt = File.GetLastWriteTime(file);
+                        }
+
+                        if (archivedAt < cutoff)
+                        {
+                            File.Delete(file);
+                            _logger.LogInformation("Deleted old archive: {file}", name);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not delete archive file: {file}", Path.GetFileName(file));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Archive cleanup failed");
             }
         }
 
